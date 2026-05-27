@@ -1,0 +1,97 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/**
+ * Bus Model
+ */
+model Bus {
+  id   String @id @default(uuid())
+  name String
+
+  // Total number of passenger seats
+  chairs Int
+
+  /**
+   * Seat layout configuration
+   * Example:
+   * leftSideSeatsPerRow = 2
+   * rightSideSeatsPerRow = 2
+   * Means:
+   * [L L] aisle [R R]
+   * seatStartFrom:
+   * - LEFT  -> numbering starts from left side
+   * - RIGHT -> numbering starts from right side
+   */
+  left          Int
+  right         Int
+  seatStartFrom SeatStartFrom
+
+  /**
+   * Plate stored as JSON to support Sudan format
+   * Example JSON:
+   * {
+   * "arabic": "س ع 1234",
+   * "english": "SA 1234",
+   * "numbers": "1234",
+   * "layout": "horizontal" // or "vertical"
+   * }
+   */
+  plate Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  trips Trip[]
+}
+
+enum SeatStartFrom {
+  LEFT
+  RIGHT
+}
+
+/**
+ * Trip Model
+ */
+
+model Trip {
+  id String @id @default(uuid())
+
+  busId String
+  bus   Bus    @relation(fields: [busId], references: [id], onDelete: Cascade)
+
+  presence_time DateTime
+
+  // SEARCHABLE FIELDS (CRITICAL)
+  departureDate DateTime
+  departureTime DateTime
+  fromState     String
+  fromCity      String
+  fromStation   String
+
+  // ARRIVAL FIELDS
+  arrivalTime DateTime
+  arrivalDate DateTime
+  toState     String
+  toCity      String
+  toStation   String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // tickets       Ticket[]
+  // bookings      Booking[]
+
+  @@index([fromCity, toCity])
+  @@index([departureDate])
+}

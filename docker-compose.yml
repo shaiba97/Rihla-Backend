@@ -1,0 +1,59 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    env_file: ./backend/.env
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - backend-uploads:/app/upload
+
+  admin:
+    build:
+      context: ./admin
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    depends_on:
+      - backend
+
+  customer:
+    build:
+      context: ./customer
+      dockerfile: Dockerfile
+    ports:
+      - "4100:4100"
+    depends_on:
+      - backend
+
+  company:
+    build:
+      context: ./company
+      dockerfile: Dockerfile
+    ports:
+      - "4200:80"
+    depends_on:
+      - backend
+
+volumes:
+  redis-data:
+  backend-uploads:

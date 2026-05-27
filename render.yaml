@@ -1,0 +1,55 @@
+services:
+  - type: web
+    name: rihla-backend
+    runtime: docker
+    repo: https://github.com/shaiba97/Rihla
+    branch: main
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health
+    envVars:
+      # Required — set these manually in Render dashboard
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      # Server ports (must match docker-entrypoint.sh)
+      - key: ADMIN_PORT
+        value: "3000"
+      - key: COMPANY_PORT
+        value: "3001"
+      - key: CUSTOMER_PORT
+        value: "3002"
+      # CORS origins (update with your actual domains)
+      - key: CORS_ORIGINS
+        value: https://your-frontend-domain.com
+      # Redis
+      - key: REDIS_HOST
+        fromService:
+          name: rihla-redis
+          type: redis
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          name: rihla-redis
+          type: redis
+          property: port
+      - key: REDIS_PASSWORD
+        fromService:
+          name: rihla-redis
+          type: redis
+          property: password
+      # WhatsApp (optional)
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      # Node environment
+      - key: NODE_ENV
+        value: production
+
+  - type: redis
+    name: rihla-redis
+    plan: free
+    maxmemoryPolicy: noeviction
+    ipAllowList: []

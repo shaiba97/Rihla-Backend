@@ -1,0 +1,260 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Bus Model
+model Bus {
+  id            String        @id @default(uuid())
+  companyId     String
+  Company       users         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name          String
+  /// Total number of passenger seats
+  chairs        Int
+  /// seatStartFrom:
+  ///     - LEFT  -> numbering starts from left side
+  ///     - RIGHT -> numbering starts from right side
+  seatStartFrom SeatStartFrom
+  /// Plate stored as JSON to support Sudan format
+  ///
+  ///     Example JSON:
+  ///     {
+  ///       "arabic": "س ع 1234",
+  ///       "english": "SA 1234",
+  ///       "numbers": "1234",
+  ///     }
+  plate         Json
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  Trip          Trip[]
+}
+
+model Trip {
+  id            String   @id @default(uuid())
+
+  busId         String
+  Bus           Bus      @relation(fields: [busId], references: [id], onDelete: Cascade)
+
+  presence_time String
+
+  // SEARCHABLE FIELDS (CRITICAL)
+  departureDate DateTime
+  departureTime String
+  fromState     String
+  fromCity      String
+  fromStation   String
+
+  // ARRIVAL FIELDS
+  arrivalTime   String
+  arrivalDate   DateTime
+  toState       String
+  toCity        String
+  toStation     String
+
+  status        TripStatus
+
+  // PRICE FIELD
+  price         Decimal? @db.Decimal(10, 2)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+
+
+  Booking       Booking[]
+
+  @@index([fromCity, toCity])
+  @@index([departureDate])
+}
+
+model users {
+  id        String    @id @default(uuid())
+  name      String
+  email     String?   @unique
+  phone     String?   @unique
+  password  String?
+  role      Role
+  googleId  String?   @unique
+  facebookId String?  @unique
+  avatar    String?
+  isActive  Boolean   @default(true)
+  refreshToken String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  Booking       Booking[]
+  Payment       Payment[]
+  Bus           Bus[]
+  notifications Notification[]
+  BlogPost      BlogPost[]
+
+  @@index([email])
+}
+
+model Booking {
+  id                 String        @id @default(uuid())
+  customerId         String
+  tripId             String
+  seatNumbers        Int[]
+  passenger          Json
+  passengerContact   String
+  status             BookingStatus @default(PENDING)
+  cancellationReason String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  Customer           users         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  Trip               Trip          @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  Payment            Payment?
+  TicketPDF          TicketPDF?
+}
+
+model Payment {
+  id                String        @id @default(uuid())
+  bookingId         String        @unique
+  customerId        String
+  price             Decimal?      @db.Decimal(10, 2)
+  totalAmount       Decimal       @db.Decimal(10, 2)
+  companyAmount     Decimal       @db.Decimal(10, 2)
+  commissionAmount  Decimal       @db.Decimal(10, 2)
+  platformFeeAmount  Decimal?      @db.Decimal(10, 2)
+  currency          String        @default("جنيه سوداني")
+  status            PaymentStatus @default(PENDING)
+  paymentMethod     String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  receiptFile       String?
+  transactionId     String?       @unique
+  Booking           Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  Customer          users         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+}
+
+
+model TicketPDF {
+  id          String   @id @default(uuid())
+  bookingId   String   @unique
+  ticketUrl   String
+  generatedAt DateTime @default(now())
+  Booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+}
+
+model BlogPost {
+  id        String   @id @default(uuid())
+  title     String
+  slug      String   @unique
+  excerpt   String?
+  content   String
+  coverImage String?
+  authorId  String
+  author    users    @relation(fields: [authorId], references: [id])
+  published Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slug])
+  @@index([published, createdAt])
+}
+
+enum SeatStartFrom {
+  LEFT
+  RIGHT
+}
+
+enum TripStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum Role {
+  USER
+  ADMIN
+  COMPANY
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      users            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+}
+
+enum NotificationType {
+  BOOKING_CREATED
+  BOOKING_CONFIRMED
+  BOOKING_REJECTED
+  BOOKING_CANCELLED
+  PAYMENT_PENDING
+  PAYMENT_CONFIRMED
+  PAYMENT_REJECTED
+  SYSTEM
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+model PlatformFee {
+  id          String   @id @default(uuid())
+  amount      Decimal  @db.Decimal(10, 2)
+  currency    String   @default("جنيه سوداني")
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Expense {
+  id        String   @id @default(uuid())
+  amount    Decimal  @db.Decimal(10, 2)
+  reason    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PaymentAccount {
+  id              String   @id @default(uuid())
+  accountHolder   String
+  accountNumber   String
+  gatewayName     String
+  gatewayKey      String?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model SupportContact {
+  id        String   @id @default(uuid())
+  type      String
+  value     String
+  label     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
