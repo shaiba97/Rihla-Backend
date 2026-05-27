@@ -2,10 +2,10 @@ services:
   - type: web
     name: rihla-backend
     runtime: docker
-    repo: https://github.com/shaiba97/Rihla
+    repo: https://github.com/shaiba97/Rihla-Backend
     branch: main
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /api/health
     envVars:
       # Required — set these manually in Render dashboard
