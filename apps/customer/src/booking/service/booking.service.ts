@@ -353,7 +353,7 @@ export class BookingService {
     });
 
     const activeBookings = bookings.filter(
-      (b) => b.status === BookingStatus.CONFIRMED || b.Payment,
+      (b: any) => b.status === BookingStatus.CONFIRMED || b.Payment,
     );
     const bookedSeats = activeBookings.flatMap((booking: any) => booking.seatNumbers);
 

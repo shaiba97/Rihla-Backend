@@ -6,7 +6,8 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "build": "nest build",
+    "postinstall": "npx prisma generate --schema=libs/prisma/schema.prisma",
+    "build": "npx prisma generate --schema=libs/prisma/schema.prisma && nest build company && nest build customer && nest build admin",
     "build:company": "nest build company",
     "build:customer": "nest build customer",
     "build:admin": "nest build admin",

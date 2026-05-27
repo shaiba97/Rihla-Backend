@@ -39,7 +39,7 @@ export class TripSchedulerService {
         select: { id: true, departureDate: true, departureTime: true },
       });
 
-      const toInProgress = scheduledTrips.filter((t) => {
+      const toInProgress = scheduledTrips.filter((t: any) => {
         const depDate = this.toDateStr(new Date(t.departureDate));
         const depTime = t.departureTime?.slice(0, 5) ?? '00:00';
         return (
@@ -49,10 +49,10 @@ export class TripSchedulerService {
 
       if (toInProgress.length > 0) {
         await this.prisma.trip.updateMany({
-          where: { id: { in: toInProgress.map((t) => t.id) } },
+          where: { id: { in: toInProgress.map((t: any) => t.id) } },
           data: { status: 'IN_PROGRESS' },
         });
-        toInProgress.forEach((t) => {
+        toInProgress.forEach((t: any) => {
           this.wsGateway.emitPublic(WS_EVENTS.TRIP_STATUS_CHANGED, { tripId: t.id, status: 'IN_PROGRESS' });
         });
       }
@@ -65,7 +65,7 @@ export class TripSchedulerService {
         select: { id: true, arrivalDate: true, arrivalTime: true },
       });
 
-      const toCompleted = inProgressTrips.filter((t) => {
+      const toCompleted = inProgressTrips.filter((t: any) => {
         const arrDate = this.toDateStr(new Date(t.arrivalDate));
         const arrTime = t.arrivalTime?.slice(0, 5) ?? '00:00';
         return (
@@ -75,10 +75,10 @@ export class TripSchedulerService {
 
       if (toCompleted.length > 0) {
         await this.prisma.trip.updateMany({
-          where: { id: { in: toCompleted.map((t) => t.id) } },
+          where: { id: { in: toCompleted.map((t: any) => t.id) } },
           data: { status: 'COMPLETED' },
         });
-        toCompleted.forEach((t) => {
+        toCompleted.forEach((t: any) => {
           this.wsGateway.emitPublic(WS_EVENTS.TRIP_STATUS_CHANGED, { tripId: t.id, status: 'COMPLETED' });
         });
       }

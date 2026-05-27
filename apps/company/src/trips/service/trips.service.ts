@@ -91,7 +91,7 @@ export class TripsService {
       },
     });
 
-    return trips.filter((t) => {
+    return trips.filter((t: any) => {
       const totalSeats = t.Bus?.chairs ?? 0;
       const bookedSeats = t.Booking.reduce(
         (sum: number, b: any) => sum + (b.seatNumbers?.length ?? 0),
@@ -181,7 +181,7 @@ export class TripsService {
       orderBy: [{ departureDate: 'asc' }],
     });
 
-    const availableTrips = trips.filter((t) => {
+    const availableTrips = trips.filter((t: any) => {
       const totalSeats = t.Bus?.chairs ?? 0;
       const bookedSeats = t.Booking.reduce(
         (sum: number, b: any) => sum + (b.seatNumbers?.length ?? 0),

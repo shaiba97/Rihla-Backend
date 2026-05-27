@@ -16,41 +16,41 @@ export class PaymentService {
       include: { Booking: { include: { Trip: true } } },
     });
 
-    const totalRevenue = payments.reduce((s, p) => s + Number(p.companyAmount ?? 0), 0);
+    const totalRevenue = payments.reduce((s: number, p: any) => s + Number(p.companyAmount ?? 0), 0);
 
     const startOfMonth = new Date(); startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0);
-    const thisMonthPayments = payments.filter(p => new Date(p.createdAt) >= startOfMonth);
-    const thisMonthRevenue = thisMonthPayments.reduce((s, p) => s + Number(p.companyAmount ?? 0), 0);
+    const thisMonthPayments = payments.filter((p: any) => new Date(p.createdAt) >= startOfMonth);
+    const thisMonthRevenue = thisMonthPayments.reduce((s: number, p: any) => s + Number(p.companyAmount ?? 0), 0);
 
     const totalBookings = await this.prisma.booking.count({ where: { Trip: { Bus: { companyId } }, status: 'CONFIRMED' } });
     const pendingBookings = await this.prisma.booking.count({ where: { Trip: { Bus: { companyId } }, status: 'PENDING' } });
 
     const thirtyDaysAgo = new Date(); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const recentPayments = payments.filter(p => new Date(p.createdAt) >= thirtyDaysAgo);
+    const recentPayments = payments.filter((p: any) => new Date(p.createdAt) >= thirtyDaysAgo);
     const dailyMap: Record<string, number> = {};
-    recentPayments.forEach(p => {
+    recentPayments.forEach((p: any) => {
       const date = new Date(p.createdAt).toISOString().split('T')[0];
       dailyMap[date] = (dailyMap[date] ?? 0) + Number(p.companyAmount ?? 0);
     });
-    const dailyRevenue = Object.entries(dailyMap).map(([date, amount]) => ({ date, amount })).sort((a, b) => a.date.localeCompare(b.date));
+    const dailyRevenue = Object.entries(dailyMap).map(([date, amount]) => ({ date, amount })).sort((a: any, b: any) => a.date.localeCompare(b.date));
 
     const tripMap: Record<string, { tripId: string; from: string; to: string; revenue: number; bookings: number }> = {};
-    payments.forEach(p => {
+    payments.forEach((p: any) => {
       const trip = p.Booking?.Trip; if (!trip) return;
       if (!tripMap[trip.id]) tripMap[trip.id] = { tripId: trip.id, from: trip.fromCity ?? '', to: trip.toCity ?? '', revenue: 0, bookings: 0 };
       tripMap[trip.id].revenue += Number(p.companyAmount ?? 0);
       tripMap[trip.id].bookings += 1;
     });
-    const topTrips = Object.values(tripMap).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+    const topTrips = Object.values(tripMap).sort((a: any, b: any) => b.revenue - a.revenue).slice(0, 5);
 
-    const recentPaymentsList = payments.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 10).map(p => ({
+    const recentPaymentsList = payments.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 10).map((p: any) => ({
       id: p.id, bookingId: p.bookingId, totalAmount: Number(p.totalAmount),
       companyAmount: Number(p.companyAmount), commissionAmount: Number(p.commissionAmount),
       paymentMethod: p.paymentMethod, createdAt: p.createdAt,
       from: p.Booking?.Trip?.fromCity, to: p.Booking?.Trip?.toCity,
     }));
 
-    const totalCompanyIncome = payments.reduce((s, p) => s + Number(p.companyAmount ?? 0), 0);
+    const totalCompanyIncome = payments.reduce((s: number, p: any) => s + Number(p.companyAmount ?? 0), 0);
     return { totalRevenue, totalCommission: 0, netEarnings: totalCompanyIncome, thisMonthRevenue, totalBookings, pendingBookings, dailyRevenue, topTrips, recentPayments: recentPaymentsList };
   }
 
@@ -78,7 +78,7 @@ export class PaymentService {
 
     const groups: Record<string, { revenue: number; platformFees: number; netIncome: number; count: number }> = {};
 
-    payments.forEach(p => {
+    payments.forEach((p: any) => {
       const key = getKey(new Date(p.createdAt));
       if (!groups[key]) groups[key] = { revenue: 0, platformFees: 0, netIncome: 0, count: 0 };
       groups[key].revenue += Number(p.totalAmount ?? 0);
