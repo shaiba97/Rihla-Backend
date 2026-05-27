@@ -1,38 +1,51 @@
 import { NestFactory } from '@nestjs/core';
+import { Logger } from '@nestjs/common';
 import { AdminModule } from './admin.module';
 import { RedisIoAdapter } from '@app/websocket';
 import * as path from 'path';
 import * as express from 'express';
-import { ConfigService } from '@nestjs/config';
-import { Logger } from '@nestjs/common';
+
+function validateEnv(): void {
+  const required = ['DATABASE_URL', 'JWT_SECRET'];
+  const missing = required.filter(v => !process.env[v]);
+  if (missing.length > 0) {
+    console.error(`Missing required environment variables: ${missing.join(', ')}`);
+    console.error('Copy .env.example to .env and fill in the values.');
+    process.exit(1);
+  }
+}
+
+const logger = new Logger('Bootstrap');
 
 async function bootstrap() {
+  validateEnv();
   const app = await NestFactory.create(AdminModule);
-  const configService = app.get(ConfigService);
-  const logger = new Logger('AdminApp');
-
   app.useWebSocketAdapter(new RedisIoAdapter(app));
   app.setGlobalPrefix('api');
 
-  // Parse CORS origins from environment variable
-  const corsOriginsString = configService.get<string>('CORS_ORIGINS', 'http://localhost:4000,http://localhost:4100,http://localhost:4200');
-  const corsOrigins = corsOriginsString.split(',').map((origin) => origin.trim());
-
+  const corsOrigins = (process.env.CORS_ORIGINS ?? '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(s => s.startsWith('http://') || s.startsWith('https://'));
   app.enableCors({
-    origin: corsOrigins,
+    origin: corsOrigins.length > 0 ? corsOrigins : ['http://localhost:4200', 'http://localhost:4100', 'http://localhost:4000'],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     allowedHeaders: 'Content-Type, Authorization',
     credentials: true,
   });
 
-  app.use('/upload', express.static(path.join(__dirname, '../../../upload')));
-  app.use('/uploads', express.static(path.join(__dirname, '../../../uploads')));
+  const serveSafe = (dir: string) => (req: any, res: any, next: any) => {
+    const ext = path.extname(req.path).toLowerCase();
+    const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.pdf'];
+    if (allowed.includes(ext) || !ext) {
+      return express.static(dir)(req, res, next);
+    }
+    res.status(403).send('Forbidden');
+  };
+  app.use('/upload', serveSafe(path.join(__dirname, '../../../upload')));
+  app.use('/uploads', serveSafe(path.join(__dirname, '../../../uploads')));
 
-  const port = configService.get<number>('ADMIN_PORT', 3000);
-  await app.listen(port);
-  logger.log(`Admin service started on port ${port}`);
+  await app.listen(process.env.ADMIN_PORT ?? 3000);
+  logger.log(`Admin service started on port ${process.env.ADMIN_PORT ?? 3000}`);
 }
-bootstrap().catch((err) => {
-  console.error('Bootstrap failed:', err);
-  process.exit(1);
-});
+bootstrap();

@@ -1,10 +1,90 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
-import { PrismaService } from '@app/prisma';
+import { PrismaService, Prisma } from '@app/prisma';
 import { PDFService } from '@app/pdf';
 import { RihlaWsGateway, WS_EVENTS } from '@app/websocket';
 import { NotificationsService } from '../notifications/notifications.service';
 
 type Period = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'half-yearly' | 'yearly';
+
+type DashboardPaymentSummary = {
+  totalAmount: Prisma.Decimal;
+  platformFeeAmount: Prisma.Decimal | null;
+  companyAmount: Prisma.Decimal;
+  paymentMethod: string | null;
+  createdAt: Date;
+};
+
+type DashboardBooking = {
+  id: string;
+  status: string;
+  seatNumbers: number[];
+  createdAt: Date;
+  Trip: { fromCity: string; toCity: string; departureDate: Date } | null;
+  Customer: { name: string; phone: string | null } | null;
+  Payment: { status: string; totalAmount: Prisma.Decimal } | null;
+};
+
+type DashboardPendingPayment = {
+  id: string;
+  totalAmount: Prisma.Decimal;
+  paymentMethod: string | null;
+  createdAt: Date;
+  Booking: {
+    Trip: { fromCity: string; toCity: string } | null;
+    Customer: { name: string } | null;
+  } | null;
+};
+
+type FullPaymentBooking = {
+  id: string;
+  bookingId: string;
+  status: string;
+  totalAmount: Prisma.Decimal;
+  companyAmount: Prisma.Decimal;
+  platformFeeAmount: Prisma.Decimal | null;
+  paymentMethod: string | null;
+  transactionId: string | null;
+  receiptFile: string | null;
+  createdAt: Date;
+  Booking: {
+    status: string;
+    seatNumbers: number[];
+    Customer?: { id: string; name: string; phone: string | null } | null;
+    Trip: {
+      fromCity: string;
+      toCity: string;
+      departureDate: Date;
+      departureTime: string;
+      Bus: {
+        name: string;
+        Company: { id: string; name: string } | null;
+      } | null;
+    } | null;
+  } | null;
+};
+
+type PendingPaymentDetail = {
+  id: string;
+  bookingId: string;
+  status: string;
+  totalAmount: Prisma.Decimal;
+  platformFeeAmount: Prisma.Decimal | null;
+  companyAmount: Prisma.Decimal;
+  paymentMethod: string | null;
+  transactionId: string | null;
+  receiptFile: string | null;
+  createdAt: Date;
+  Booking: {
+    seatNumbers: number[];
+    Customer: { id: string; name: string; phone: string | null } | null;
+    Trip: {
+      fromCity: string;
+      toCity: string;
+      departureDate: Date;
+      departureTime: string;
+    } | null;
+  } | null;
+};
 
 @Injectable()
 export class AdminFinancialService {
@@ -54,19 +134,19 @@ export class AdminFinancialService {
       this.prisma.paymentAccount.count({ where: { isActive: true } }),
     ]);
 
-    const totalRevenue = allPayments.reduce((s, p) => s + Number(p.totalAmount), 0);
-    const totalPlatformEarnings = allPayments.reduce((s, p) => s + Number(p.platformFeeAmount ?? 0), 0);
-    const totalCompanyAmount = allPayments.reduce((s, p) => s + Number(p.companyAmount ?? 0), 0);
-    const revenueThisMonth = allPayments.filter(p => new Date(p.createdAt) >= startOfMonth).reduce((s, p) => s + Number(p.totalAmount), 0);
+    const totalRevenue = allPayments.reduce((s: number, p: DashboardPaymentSummary) => s + Number(p.totalAmount), 0);
+    const totalPlatformEarnings = allPayments.reduce((s: number, p: DashboardPaymentSummary) => s + Number(p.platformFeeAmount ?? 0), 0);
+    const totalCompanyAmount = allPayments.reduce((s: number, p: DashboardPaymentSummary) => s + Number(p.companyAmount ?? 0), 0);
+    const revenueThisMonth = allPayments.filter((p: DashboardPaymentSummary) => new Date(p.createdAt) >= startOfMonth).reduce((s: number, p: DashboardPaymentSummary) => s + Number(p.totalAmount), 0);
 
     const dailyRevenueMap: Record<string, { revenue: number; earnings: number; bookings: number }> = {};
     for (let i = 29; i >= 0; i--) { const d = new Date(now); d.setDate(d.getDate() - i); dailyRevenueMap[d.toISOString().slice(0, 10)] = { revenue: 0, earnings: 0, bookings: 0 }; }
-    allPayments.filter(p => new Date(p.createdAt) >= last30).forEach(p => { const key = new Date(p.createdAt).toISOString().slice(0, 10); if (dailyRevenueMap[key]) { dailyRevenueMap[key].revenue += Number(p.totalAmount); dailyRevenueMap[key].earnings += Number(p.platformFeeAmount ?? 0); dailyRevenueMap[key].bookings += 1; } });
-    const dailyRevenue = Object.entries(dailyRevenueMap).map(([date, data]) => ({ date, ...data }));
+    allPayments.filter((p: DashboardPaymentSummary) => new Date(p.createdAt) >= last30).forEach((p: DashboardPaymentSummary) => { const key = new Date(p.createdAt).toISOString().slice(0, 10); if (dailyRevenueMap[key]) { dailyRevenueMap[key].revenue += Number(p.totalAmount); dailyRevenueMap[key].earnings += Number(p.platformFeeAmount ?? 0); dailyRevenueMap[key].bookings += 1; } });
+    const dailyRevenue = Object.entries(dailyRevenueMap).map(([date, data]: [string, { revenue: number; earnings: number; bookings: number }]) => ({ date, ...data }));
 
     const methodMap: Record<string, number> = {};
-    allPayments.forEach(p => { const m = p.paymentMethod ?? 'other'; methodMap[m] = (methodMap[m] ?? 0) + Number(p.totalAmount); });
-    const paymentMethodBreakdown = Object.entries(methodMap).map(([method, amount]) => ({ method, amount }));
+    allPayments.forEach((p: DashboardPaymentSummary) => { const m = p.paymentMethod ?? 'other'; methodMap[m] = (methodMap[m] ?? 0) + Number(p.totalAmount); });
+    const paymentMethodBreakdown = Object.entries(methodMap).map(([method, amount]: [string, number]) => ({ method, amount }));
 
     const [recentBookings, recentPendingPayments] = await Promise.all([
       this.prisma.booking.findMany({
@@ -90,8 +170,8 @@ export class AdminFinancialService {
       bookings: { total: totalBookings, confirmed: confirmedBookings, pending: pendingBookings, cancelled: cancelledBookings, today: bookingsToday, thisMonth: bookingsThisMonth, confirmationRate: totalBookings > 0 ? Math.round((confirmedBookings / totalBookings) * 100) : 0 },
       operations: { totalTrips, activeTrips: scheduledTrips, totalBuses },
       revenue: { totalRevenue: Math.round(totalRevenue), totalPlatformEarnings: Math.round(totalPlatformEarnings), totalCompanyAmount: Math.round(totalCompanyAmount), revenueThisMonth: Math.round(revenueThisMonth), totalSuccessfulTransactions: allPayments.length, dailyRevenue, paymentMethodBreakdown: paymentMethodBreakdown.map(m => ({ ...m, amount: Math.round(m.amount) })) },
-      recentBookings: recentBookings.map(b => ({ id: b.id, customerName: b.Customer?.name ?? '—', from: b.Trip?.fromCity ?? '—', to: b.Trip?.toCity ?? '—', date: b.Trip?.departureDate, seatNumber: b.seatNumbers?.[0] ?? 0, status: b.status, paymentStatus: b.Payment?.status, amount: Number(b.Payment?.totalAmount ?? 0), createdAt: b.createdAt })),
-      pendingActions: recentPendingPayments.map(p => ({ id: p.id, customerName: p.Booking?.Customer?.name ?? '—', from: p.Booking?.Trip?.fromCity ?? '—', to: p.Booking?.Trip?.toCity ?? '—', amount: Number(p.totalAmount), paymentMethod: p.paymentMethod, createdAt: p.createdAt })),
+      recentBookings: recentBookings.map((b: DashboardBooking) => ({ id: b.id, customerName: b.Customer?.name ?? '—', from: b.Trip?.fromCity ?? '—', to: b.Trip?.toCity ?? '—', date: b.Trip?.departureDate, seatNumber: b.seatNumbers?.[0] ?? 0, status: b.status, paymentStatus: b.Payment?.status, amount: Number(b.Payment?.totalAmount ?? 0), createdAt: b.createdAt })),
+      pendingActions: recentPendingPayments.map((p: DashboardPendingPayment) => ({ id: p.id, customerName: p.Booking?.Customer?.name ?? '—', from: p.Booking?.Trip?.fromCity ?? '—', to: p.Booking?.Trip?.toCity ?? '—', amount: Number(p.totalAmount), paymentMethod: p.paymentMethod, createdAt: p.createdAt })),
     };
   }
 
@@ -110,23 +190,23 @@ export class AdminFinancialService {
       this.prisma.expense.aggregate({ _sum: { amount: true } }),
     ]);
 
-    const successPayments = allPayments.filter(p => p.status === 'SUCCESS');
-    const totalRevenue = successPayments.reduce((s, p) => s + Number(p.totalAmount ?? 0), 0);
-    const totalCompanyAmount = successPayments.reduce((s, p) => s + Number(p.companyAmount ?? 0), 0);
-    const totalPlatformEarnings = successPayments.reduce((s, p) => s + Number(p.platformFeeAmount ?? 0), 0);
+    const successPayments = allPayments.filter((p: FullPaymentBooking) => p.status === 'SUCCESS');
+    const totalRevenue = successPayments.reduce((s: number, p: FullPaymentBooking) => s + Number(p.totalAmount ?? 0), 0);
+    const totalCompanyAmount = successPayments.reduce((s: number, p: FullPaymentBooking) => s + Number(p.companyAmount ?? 0), 0);
+    const totalPlatformEarnings = successPayments.reduce((s: number, p: FullPaymentBooking) => s + Number(p.platformFeeAmount ?? 0), 0);
 
     const monthlyMap: Record<string, { revenue: number; earnings: number; count: number }> = {};
-    successPayments.forEach(p => {
+    successPayments.forEach((p: FullPaymentBooking) => {
       const key = new Date(p.createdAt).toISOString().slice(0, 7);
       if (!monthlyMap[key]) monthlyMap[key] = { revenue: 0, earnings: 0, count: 0 };
       monthlyMap[key].revenue += Number(p.totalAmount ?? 0);
       monthlyMap[key].earnings += Number(p.platformFeeAmount ?? 0);
       monthlyMap[key].count += 1;
     });
-    const monthlyBreakdown = Object.entries(monthlyMap).map(([month, d]) => ({ month, ...d })).sort((a, b) => a.month.localeCompare(b.month)).slice(-12);
+    const monthlyBreakdown = Object.entries(monthlyMap).map(([month, d]: [string, { revenue: number; earnings: number; count: number }]) => ({ month, ...d })).sort((a: { month: string; revenue: number; earnings: number; count: number }, b: { month: string; revenue: number; earnings: number; count: number }) => a.month.localeCompare(b.month)).slice(-12);
 
     const bm: Record<string, number> = {};
-    bookingStats.forEach((b: any) => { bm[b.status] = b._count.id; });
+    bookingStats.forEach((b: { status: string; _count: { id: number } }) => { bm[b.status] = b._count.id; });
 
     const totalExpensesVal = Number(totalExpenses._sum.amount ?? 0);
 
@@ -140,7 +220,7 @@ export class AdminFinancialService {
       monthlyBreakdown,
       bookingStatus: { pending: bm['PENDING'] ?? 0, confirmed: bm['CONFIRMED'] ?? 0, cancelled: bm['CANCELLED'] ?? 0 },
       allTransactions: allPayments.length,
-      recentPayments: allPayments.map(p => ({
+      recentPayments: allPayments.map((p: FullPaymentBooking) => ({
         id: p.id, status: p.status, totalAmount: Number(p.totalAmount),
         platformFeeAmount: Number(p.platformFeeAmount ?? 0), companyAmount: Number(p.companyAmount ?? 0),
         paymentMethod: p.paymentMethod, transactionId: p.transactionId, recieptFile: p.receiptFile,
@@ -154,12 +234,12 @@ export class AdminFinancialService {
   }
 
   async getPendingPayments() {
-    const payments = await this.prisma.payment.findMany({
+    const payments: PendingPaymentDetail[] = await this.prisma.payment.findMany({
       where: { status: 'PENDING' },
       include: { Booking: { include: { Trip: true, Customer: { select: { id: true, name: true, phone: true } } } } },
       orderBy: { createdAt: 'desc' },
     });
-    return payments.map(p => ({
+    return payments.map((p: PendingPaymentDetail) => ({
       id: p.id, status: p.status, totalAmount: Number(p.totalAmount),
       platformFeeAmount: Number(p.platformFeeAmount ?? 0), companyAmount: Number(p.companyAmount ?? 0),
       paymentMethod: p.paymentMethod, transactionId: p.transactionId, recieptFile: p.receiptFile,
@@ -252,7 +332,7 @@ export class AdminFinancialService {
   }
 
   async getEarnings(period: Period = 'monthly') {
-    const payments = await this.prisma.payment.findMany({
+    const payments: FullPaymentBooking[] = await this.prisma.payment.findMany({
       where: { status: 'SUCCESS' },
       include: {
         Booking: {
@@ -282,7 +362,7 @@ export class AdminFinancialService {
 
     const groups: Record<string, { revenue: number; platformEarnings: number; companyAmount: number; count: number; companies: Record<string, { name: string; revenue: number; platformEarnings: number; companyAmount: number; count: number }> }> = {};
 
-    payments.forEach(p => {
+    payments.forEach((p: FullPaymentBooking) => {
       const key = getKey(new Date(p.createdAt));
       if (!groups[key]) groups[key] = { revenue: 0, platformEarnings: 0, companyAmount: 0, count: 0, companies: {} };
       groups[key].revenue += Number(p.totalAmount ?? 0);
@@ -299,14 +379,16 @@ export class AdminFinancialService {
       groups[key].companies[cId].count += 1;
     });
 
-    return Object.entries(groups).map(([period, g]) => ({
+    type EarningsEntry = { revenue: number; platformEarnings: number; companyAmount: number; count: number; companies: Record<string, { name: string; revenue: number; platformEarnings: number; companyAmount: number; count: number }> };
+    type EarningsCompany = { name: string; revenue: number; platformEarnings: number; companyAmount: number; count: number };
+    return Object.entries(groups).map(([period, g]: [string, EarningsEntry]) => ({
       period,
       revenue: Math.round(g.revenue),
       platformEarnings: Math.round(g.platformEarnings),
       companyAmount: Math.round(g.companyAmount),
       count: g.count,
-      companies: Object.values(g.companies).map(c => ({ ...c, revenue: Math.round(c.revenue), platformEarnings: Math.round(c.platformEarnings), companyAmount: Math.round(c.companyAmount) })),
-    })).sort((a, b) => a.period.localeCompare(b.period));
+      companies: Object.values(g.companies).map((c: EarningsCompany) => ({ ...c, revenue: Math.round(c.revenue), platformEarnings: Math.round(c.platformEarnings), companyAmount: Math.round(c.companyAmount) })),
+    })).sort((a: { period: string; revenue: number; platformEarnings: number; companyAmount: number; count: number; companies: { name: string; revenue: number; platformEarnings: number; companyAmount: number; count: number }[] }, b: { period: string; revenue: number; platformEarnings: number; companyAmount: number; count: number; companies: { name: string; revenue: number; platformEarnings: number; companyAmount: number; count: number }[] }) => a.period.localeCompare(b.period));
   }
 
   async getPerformance(period: Period = 'monthly') {
@@ -348,7 +430,7 @@ export class AdminFinancialService {
       companies: Record<string, { id: string; name: string; revenue: number; platformFees: number; companyIncome: number; count: number }>;
     }> = {};
 
-    payments.forEach(p => {
+    payments.forEach((p: FullPaymentBooking) => {
       const key = getKey(new Date(p.createdAt));
       if (!groups[key]) groups[key] = { platformRevenue: 0, platformExpenses: 0, count: 0, companies: {} };
       groups[key].platformRevenue += Number(p.platformFeeAmount ?? 0);
@@ -363,21 +445,23 @@ export class AdminFinancialService {
       groups[key].companies[cId].count += 1;
     });
 
-    allExpenses.forEach(e => {
+    allExpenses.forEach((e: { id: string; amount: Prisma.Decimal; reason: string; createdAt: Date; updatedAt: Date }) => {
       const key = getKey(new Date(e.createdAt));
       if (!groups[key]) groups[key] = { platformRevenue: 0, platformExpenses: 0, count: 0, companies: {} };
       groups[key].platformExpenses += Number(e.amount ?? 0);
     });
 
-    return Object.entries(groups).map(([period, g]) => ({
+    type PerfEntry = { platformRevenue: number; platformExpenses: number; count: number; companies: Record<string, { id: string; name: string; revenue: number; platformFees: number; companyIncome: number; count: number }> };
+    type PerfCompany = { id: string; name: string; revenue: number; platformFees: number; companyIncome: number; count: number };
+    return Object.entries(groups).map(([period, g]: [string, PerfEntry]) => ({
       period,
       platformRevenue: Math.round(g.platformRevenue),
       platformExpenses: Math.round(g.platformExpenses),
       platformNet: Math.round(g.platformRevenue - g.platformExpenses),
       count: g.count,
-      companies: Object.values(g.companies).map(c => ({
+      companies: Object.values(g.companies).map((c: PerfCompany) => ({
         ...c, revenue: Math.round(c.revenue), platformFees: Math.round(c.platformFees), companyIncome: Math.round(c.companyIncome),
       })),
-    })).sort((a, b) => a.period.localeCompare(b.period));
+    })).sort((a: { period: string; platformRevenue: number; platformExpenses: number; platformNet: number; count: number; companies: { id: string; name: string; revenue: number; platformFees: number; companyIncome: number; count: number }[] }, b: { period: string; platformRevenue: number; platformExpenses: number; platformNet: number; count: number; companies: { id: string; name: string; revenue: number; platformFees: number; companyIncome: number; count: number }[] }) => a.period.localeCompare(b.period));
   }
 }

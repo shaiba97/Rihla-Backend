@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
 import { UsersModule } from './users/users.module';
 import { PlatformFeeModule } from './platform-fee/platform-fee.module';
 import { PaymentAccountsModule } from './payment-accounts/payment-accounts.module';
@@ -14,19 +13,7 @@ import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 
 @Module({
-  imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
-    UsersModule,
-    PlatformFeeModule,
-    PaymentAccountsModule,
-    ExpenseModule,
-    AdminFinancialModule,
-    AdminUsersModule,
-    SupportContactsModule,
-    BlogModule,
-    NotificationsModule,
-    RihlaWsModule,
-  ],
+  imports: [UsersModule, PlatformFeeModule, PaymentAccountsModule, ExpenseModule, AdminFinancialModule, AdminUsersModule, SupportContactsModule, BlogModule, NotificationsModule, RihlaWsModule],
   controllers: [AdminController],
   providers: [AdminService],
 })

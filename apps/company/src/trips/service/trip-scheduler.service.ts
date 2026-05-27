@@ -6,6 +6,7 @@ import { RihlaWsGateway, WS_EVENTS } from '@app/websocket';
 @Injectable()
 export class TripSchedulerService {
   private readonly logger = new Logger(TripSchedulerService.name);
+  private lastDbFailure: number = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -25,6 +26,10 @@ export class TripSchedulerService {
     const now = new Date();
     const todayStr = this.toDateStr(now);
     const currentTime = this.toTimeStr(now);
+
+    if (this.lastDbFailure > 0 && Date.now() - this.lastDbFailure < 60000) {
+      return;
+    }
 
     try {
       const scheduledTrips = await this.prisma.trip.findMany({
@@ -81,7 +86,13 @@ export class TripSchedulerService {
         });
       }
     } catch (error) {
-      this.logger.error('Failed to update trip statuses', error);
+      this.lastDbFailure = Date.now();
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === 'EAI_AGAIN') {
+        this.logger.warn('Database unreachable (DNS), will retry next minute');
+      } else {
+        this.logger.error('Failed to update trip statuses', error);
+      }
     }
   }
 }

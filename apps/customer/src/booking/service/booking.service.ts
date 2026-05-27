@@ -323,10 +323,15 @@ export class BookingService {
       },
       select: {
         seatNumbers: true,
+        status: true,
+        Payment: { select: { id: true } },
       },
     });
 
-    const bookedSeats = bookings.flatMap((booking: any) => booking.seatNumbers);
+    const activeBookings = bookings.filter(
+      (b) => b.status === BookingStatus.CONFIRMED || b.Payment,
+    );
+    const bookedSeats = activeBookings.flatMap((booking: any) => booking.seatNumbers);
 
     const heldSeats = await this.getHeldSeatsFromRedis(tripId);
 

@@ -1,42 +1,53 @@
 import { NestFactory } from '@nestjs/core';
+import { Logger } from '@nestjs/common';
 import { CompanyModule } from './company.module';
 import { RedisIoAdapter } from '@app/websocket';
 import * as path from 'path';
 import * as express from 'express';
-import { ConfigService } from '@nestjs/config';
-import { Logger } from '@nestjs/common';
 import { getWhatsAppSock } from './config/whatsapp';
 
-async function bootstrap() {
-  const app = await NestFactory.create(CompanyModule);
-  const configService = app.get(ConfigService);
-  const logger = new Logger('CompanyApp');
+function validateEnv(): void {
+  const required = ['DATABASE_URL', 'JWT_SECRET'];
+  const missing = required.filter(v => !process.env[v]);
+  if (missing.length > 0) {
+    console.error(`Missing required environment variables: ${missing.join(', ')}`);
+    console.error('Copy .env.example to .env and fill in the values.');
+    process.exit(1);
+  }
+}
 
+async function bootstrap() {
+  validateEnv();
+  const app = await NestFactory.create(CompanyModule);
   app.useWebSocketAdapter(new RedisIoAdapter(app));
   app.setGlobalPrefix('api');
 
-  // Parse CORS origins from environment variable
-  const corsOriginsString = configService.get<string>('CORS_ORIGINS', 'http://localhost:4000,http://localhost:4100,http://localhost:4200');
-  const corsOrigins = corsOriginsString.split(',').map((origin) => origin.trim());
-
+  const corsOrigins = (process.env.CORS_ORIGINS ?? '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(s => s.startsWith('http://') || s.startsWith('https://'));
   app.enableCors({
-    origin: corsOrigins,
+    origin: corsOrigins.length > 0 ? corsOrigins : ['http://localhost:4200', 'http://localhost:4100', 'http://localhost:4000'],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     allowedHeaders: 'Content-Type, Authorization',
     credentials: true,
   });
 
-  app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+  const serveSafe = (dir: string) => (req: any, res: any, next: any) => {
+    const ext = path.extname(req.path).toLowerCase();
+    const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.pdf'];
+    if (allowed.includes(ext) || !ext) {
+      return express.static(dir)(req, res, next);
+    }
+    res.status(403).send('Forbidden');
+  };
+  app.use('/uploads', serveSafe(path.join(process.cwd(), 'uploads')));
 
-  const port = configService.get<number>('COMPANY_PORT', 3001);
-  await app.listen(port);
-  logger.log(`Company service started on port ${port}`);
+  await app.listen(process.env.COMPANY_PORT ?? 3001);
+  new Logger('Bootstrap').log(`Company service started on port ${process.env.COMPANY_PORT ?? 3001}`);
 
   getWhatsAppSock().catch((err: any) => {
-    logger.error(`WhatsApp init failed: ${err.message}`);
+    new Logger('WhatsApp').error('WhatsApp init failed: ' + err.message);
   });
 }
-bootstrap().catch((err) => {
-  console.error('Bootstrap failed:', err);
-  process.exit(1);
-});
+bootstrap();

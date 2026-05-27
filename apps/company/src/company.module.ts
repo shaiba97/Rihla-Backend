@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
 import { CompanyController } from './company.controller';
 import { CompanyService } from './company.service';
 import { BusesModule } from './buses/buses.module';
@@ -10,15 +9,7 @@ import { PaymentModule } from './payment/payment.module';
 import { RihlaWsModule } from '@app/websocket';
 
 @Module({
-  imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
-    BusesModule,
-    TripsModule,
-    UsersModule,
-    AuthModule,
-    PaymentModule,
-    RihlaWsModule,
-  ],
+  imports: [BusesModule, TripsModule, UsersModule, AuthModule, PaymentModule, RihlaWsModule],
   controllers: [CompanyController],
   providers: [CompanyService],
 })

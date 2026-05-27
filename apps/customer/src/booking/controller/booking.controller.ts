@@ -12,8 +12,7 @@ import {
   Delete,
   UploadedFile,
   ParseFilePipe,
-  MaxFileSizeValidator,
-  FileTypeValidator,
+  FileValidator,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -52,10 +51,30 @@ const uploadInterceptor = FileInterceptor('receiptFile', {
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
+class ArabicFileSizeValidator extends FileValidator<{ maxSize: number }> {
+  constructor() { super({ maxSize: 5 * 1024 * 1024 }); }
+  isValid(file: Express.Multer.File): boolean {
+    return !!file && file.size <= this.validationOptions.maxSize;
+  }
+  buildErrorMessage(): string {
+    return 'حجم الملف كبير جدًا — الحد الأقصى 5 ميجابايت';
+  }
+}
+
+class ArabicFileTypeValidator extends FileValidator<{ fileType: RegExp }> {
+  constructor() { super({ fileType: /^image\/(jpeg|jpg|png|webp|heic)$/i }); }
+  isValid(file: Express.Multer.File): boolean {
+    return !!file && 'mimetype' in file && this.validationOptions.fileType.test(file.mimetype);
+  }
+  buildErrorMessage(): string {
+    return 'نوع الملف غير مدعوم — الصيغ المسموحة: JPEG, PNG, WebP, HEIC';
+  }
+}
+
 const receiptFilePipe = new ParseFilePipe({
   validators: [
-    new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }),
-    new FileTypeValidator({ fileType: /image\/(jpeg|jpg|png|webp|heic)/ }),
+    new ArabicFileSizeValidator(),
+    new ArabicFileTypeValidator(),
   ],
   fileIsRequired: true,
 });

@@ -22,7 +22,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     const adapter = new PrismaPg(pool);
 
     this.prisma = new PrismaClient({
-      log: ['query', 'info', 'warn', 'error'],
+      log: ['info', 'warn'],
       adapter,
     });
   }

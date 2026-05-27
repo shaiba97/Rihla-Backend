@@ -55,7 +55,7 @@ export class PDFService {
       try {
         const page = await browser.newPage();
         await page.setContent(html, {
-          waitUntil: 'networkidle0',
+          waitUntil: 'load',
         });
         await page.pdf({
           path: outputPath,
@@ -209,7 +209,7 @@ export class PDFService {
       });
       try {
         const page = await browser.newPage();
-        await page.setContent(html, { waitUntil: 'networkidle0' });
+        await page.setContent(html, { waitUntil: 'load' });
         await page.pdf({
           path: outputPath,
           format: 'A4',
