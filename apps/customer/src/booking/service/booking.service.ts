@@ -21,6 +21,8 @@ const SEAT_LOCK_TTL = 420;
 
 @Injectable()
 export class BookingService {
+  private readonly logger = new Logger(BookingService.name);
+
   constructor(
     private readonly paymentService: PaymentService,
     private readonly prisma: PrismaService,
@@ -31,7 +33,7 @@ export class BookingService {
 
   async create(createBookingDto: CreateBookingDto, customerId: string) {
     try {
-      new Logger('BookingService').log('Creating booking: ' + JSON.stringify(createBookingDto));
+      this.logger.log('Creating booking: ' + JSON.stringify(createBookingDto));
       const trip = await this.prisma.trip.findUnique({
         where: { id: createBookingDto.tripId },
       });
@@ -99,7 +101,8 @@ export class BookingService {
         orderBy: { createdAt: 'desc' },
       });
 
-      const platformFeeAmount = activeFee ? Number(activeFee.amount) : 0;
+      const platformFeeRate = activeFee ? Number(activeFee.amount) : 0;
+      const platformFeeAmount = platformFeeRate * seatCount;
       const totalAmount = baseAmount + platformFeeAmount;
 
       return {
@@ -110,7 +113,7 @@ export class BookingService {
           baseAmount,
           platformFeeAmount,
           platformFeeLabel: activeFee?.description || 'رسوم المنصة',
-          platformFeeRate: activeFee ? Number(activeFee.amount) : 0,
+          platformFeeRate,
           totalAmount,
           currency: trip.price ? 'جنيه' : 'جنيه',
         },
@@ -203,17 +206,37 @@ export class BookingService {
           orderBy: { createdAt: 'desc' },
         });
 
-        const platformFeeAmount = activeFee ? Number(activeFee.amount) : 0;
+        const platformFeeRate = activeFee ? Number(activeFee.amount) : 0;
+        const platformFeeAmount = platformFeeRate * seatCount;
+        const serverCompanyAmount = baseAmount;
+        const serverTotalAmount = baseAmount + platformFeeAmount;
+
+        if (
+          dto.companyAmount !== undefined &&
+          dto.companyAmount !== serverCompanyAmount
+        ) {
+          this.logger.warn(
+            `companyAmount mismatch: DTO sent ${dto.companyAmount}, server calculated ${serverCompanyAmount}`,
+          );
+        }
+        if (
+          dto.totalAmount !== undefined &&
+          dto.totalAmount !== serverTotalAmount
+        ) {
+          this.logger.warn(
+            `totalAmount mismatch: DTO sent ${dto.totalAmount}, server calculated ${serverTotalAmount}`,
+          );
+        }
 
         const payment = await tx.payment.create({
           data: {
             bookingId: booking.id,
             customerId,
-            price: dto.price ?? tripPrice,
-            totalAmount: dto.totalAmount,
-            companyAmount: dto.companyAmount,
+            price: tripPrice,
+            totalAmount: serverTotalAmount,
+            companyAmount: serverCompanyAmount,
             commissionAmount: dto.commissionAmount,
-            platformFeeAmount: dto.platformFeeAmount ?? platformFeeAmount,
+            platformFeeAmount,
             currency: dto.currency || 'SDG',
             status: PaymentStatus.PENDING,
             paymentMethod: dto.paymentMethod,
@@ -236,8 +259,9 @@ export class BookingService {
             tripPrice,
             seatCount,
             baseAmount,
+            platformFeeRate,
             platformFeeAmount,
-            totalAmount: dto.totalAmount,
+            totalAmount: serverTotalAmount,
           },
         };
       });

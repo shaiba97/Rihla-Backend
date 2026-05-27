@@ -13,6 +13,7 @@ import {
   UploadedFile,
   ParseFilePipe,
   FileValidator,
+  Logger,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -49,6 +50,13 @@ const receiptStorage = multer.diskStorage({
 const uploadInterceptor = FileInterceptor('receiptFile', {
   storage: receiptStorage,
   limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (/^image\/(jpeg|jpg|png|webp|heic)$/i.test(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new BadRequestException('نوع الملف غير مدعوم — الصيغ المسموحة: JPEG, PNG, WebP, HEIC'), false);
+    }
+  },
 });
 
 class ArabicFileSizeValidator extends FileValidator<{ maxSize: number }> {

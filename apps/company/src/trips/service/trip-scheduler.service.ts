@@ -1,11 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '@app/prisma';
 import { RihlaWsGateway, WS_EVENTS } from '@app/websocket';
 
 @Injectable()
 export class TripSchedulerService {
-  private readonly logger = new Logger(TripSchedulerService.name);
   private lastDbFailure: number = 0;
 
   constructor(
@@ -53,7 +52,6 @@ export class TripSchedulerService {
           where: { id: { in: toInProgress.map((t) => t.id) } },
           data: { status: 'IN_PROGRESS' },
         });
-        this.logger.log(`Updated ${toInProgress.length} trips to IN_PROGRESS`);
         toInProgress.forEach((t) => {
           this.wsGateway.emitPublic(WS_EVENTS.TRIP_STATUS_CHANGED, { tripId: t.id, status: 'IN_PROGRESS' });
         });
@@ -80,19 +78,12 @@ export class TripSchedulerService {
           where: { id: { in: toCompleted.map((t) => t.id) } },
           data: { status: 'COMPLETED' },
         });
-        this.logger.log(`Updated ${toCompleted.length} trips to COMPLETED`);
         toCompleted.forEach((t) => {
           this.wsGateway.emitPublic(WS_EVENTS.TRIP_STATUS_CHANGED, { tripId: t.id, status: 'COMPLETED' });
         });
       }
-    } catch (error) {
+    } catch {
       this.lastDbFailure = Date.now();
-      const err = error as NodeJS.ErrnoException;
-      if (err.code === 'EAI_AGAIN') {
-        this.logger.warn('Database unreachable (DNS), will retry next minute');
-      } else {
-        this.logger.error('Failed to update trip statuses', error);
-      }
     }
   }
 }

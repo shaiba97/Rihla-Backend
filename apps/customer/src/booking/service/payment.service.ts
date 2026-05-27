@@ -2,9 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
-  // ConflictException,
-  // HttpException,
-  // HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '@app/prisma';
 import { PDFService } from '@app/pdf';
@@ -39,8 +37,9 @@ export class PaymentService {
     private readonly wsGateway: RihlaWsGateway,
   ) {}
 
+  private readonly logger = new Logger(PaymentService.name);
+
   async create(createPaymentDto: CreatePaymentDto) {
-    // Check if booking exists
     const booking = await this.prisma.booking.findUnique({
       where: { id: createPaymentDto.bookingId },
       include: { Trip: true },
@@ -50,7 +49,6 @@ export class PaymentService {
       throw new NotFoundException('الحجز غير موجود');
     }
 
-    // Check if payment already exists for this booking
     const existingPayment = await this.prisma.payment.findUnique({
       where: { bookingId: createPaymentDto.bookingId },
     });
@@ -59,7 +57,6 @@ export class PaymentService {
       throw new BadRequestException('الدفعة موجودة بالفعل لهذا الحجز');
     }
 
-    // Check if transactionId is unique (if provided)
     if (createPaymentDto.transactionId) {
       const existingTransaction = await this.prisma.payment.findUnique({
         where: { transactionId: createPaymentDto.transactionId },
@@ -70,15 +67,43 @@ export class PaymentService {
       }
     }
 
+    const seatNumbers = (booking.seatNumbers ?? []) as number[];
+    const seatCount = seatNumbers.length;
+    const tripPrice = Number(booking.Trip?.price ?? 0);
+    const baseAmount = tripPrice * seatCount;
+
+    const activeFee = await this.prisma.platformFee.findFirst({
+      where: { isActive: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const platformFeeRate = activeFee ? Number(activeFee.amount) : 0;
+    const platformFeeAmount = platformFeeRate * seatCount;
+    const serverCompanyAmount = baseAmount;
+    const serverTotalAmount = baseAmount + platformFeeAmount;
+
+    if (createPaymentDto.companyAmount !== undefined &&
+        createPaymentDto.companyAmount !== serverCompanyAmount) {
+      this.logger.warn(
+        `companyAmount mismatch: DTO sent ${createPaymentDto.companyAmount}, server calculated ${serverCompanyAmount}`,
+      );
+    }
+    if (createPaymentDto.totalAmount !== undefined &&
+        createPaymentDto.totalAmount !== serverTotalAmount) {
+      this.logger.warn(
+        `totalAmount mismatch: DTO sent ${createPaymentDto.totalAmount}, server calculated ${serverTotalAmount}`,
+      );
+    }
+
     const payment = await this.prisma.payment.create({
       data: {
         bookingId: createPaymentDto.bookingId,
         customerId: createPaymentDto.customerId,
-        price: createPaymentDto.price || createPaymentDto.totalAmount,
-        totalAmount: createPaymentDto.totalAmount,
-        companyAmount: createPaymentDto.companyAmount,
+        price: tripPrice,
+        totalAmount: serverTotalAmount,
+        companyAmount: serverCompanyAmount,
         commissionAmount: createPaymentDto.commissionAmount,
-        platformFeeAmount: createPaymentDto.platformFeeAmount ?? null,
+        platformFeeAmount,
         currency: createPaymentDto.currency || 'SDG',
         status: createPaymentDto.status || PaymentStatus.PENDING,
         transactionId: createPaymentDto.transactionId,
