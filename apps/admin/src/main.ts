@@ -50,7 +50,7 @@ async function bootstrap() {
     '/api-customer',
     createProxyMiddleware({
       target: 'http://127.0.0.1:3002',
-      pathRewrite: { '^/api-customer': '/api' },
+      pathRewrite: { '^/': '/api/' },
       changeOrigin: true,
     }),
   );
@@ -59,7 +59,7 @@ async function bootstrap() {
     '/api-company',
     createProxyMiddleware({
       target: 'http://127.0.0.1:3001',
-      pathRewrite: { '^/api-company': '/api' },
+      pathRewrite: { '^/': '/api/' },
       changeOrigin: true,
     }),
   );
