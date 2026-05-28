@@ -112,7 +112,6 @@ export class UsersService {
           phone: normalizedPhone,
           password: hashedPassword,
           role: (createUserDto.role as any) ?? 'USER',
-          updatedAt: new Date(),
         },
       });
 

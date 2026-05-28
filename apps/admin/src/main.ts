@@ -4,6 +4,7 @@ import { AdminModule } from './admin.module';
 import { RedisIoAdapter } from '@app/websocket';
 import * as path from 'path';
 import * as express from 'express';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 
 function validateEnv(): void {
   const required = ['DATABASE_URL', 'JWT_SECRET'];
@@ -44,6 +45,24 @@ async function bootstrap() {
   };
   app.use('/upload', serveSafe(path.join(__dirname, '../../../upload')));
   app.use('/uploads', serveSafe(path.join(__dirname, '../../../uploads')));
+
+  app.use(
+    '/api-customer',
+    createProxyMiddleware({
+      target: 'http://127.0.0.1:3002',
+      pathRewrite: { '^/api-customer': '/api' },
+      changeOrigin: true,
+    }),
+  );
+
+  app.use(
+    '/api-company',
+    createProxyMiddleware({
+      target: 'http://127.0.0.1:3001',
+      pathRewrite: { '^/api-company': '/api' },
+      changeOrigin: true,
+    }),
+  );
 
   await app.listen(process.env.ADMIN_PORT ?? 3000);
   logger.log(`Admin service started on port ${process.env.ADMIN_PORT ?? 3000}`);
