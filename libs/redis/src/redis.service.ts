@@ -25,9 +25,11 @@ export class RedisService implements OnModuleInit {
       password,
       maxRetriesPerRequest: null,
       retryStrategy(times: number) {
-        return Math.min(times * 50, 2000);
+        if (times > 3) return null;
+        return Math.min(times * 200, 2000);
       },
       lazyConnect: true,
+      connectTimeout: 5000,
     });
 
     this.client.on('connect', () => {
@@ -39,14 +41,11 @@ export class RedisService implements OnModuleInit {
       this.connected = false;
     });
 
-    this.client.on('error', (err: Error) => {
+    this.client.on('error', () => {
       this.connected = false;
-      this.logger.error('Redis error:', err.message);
     });
 
-    this.client.connect().catch((err) => {
-      this.logger.error('Redis connection failed:', err.message);
-    });
+    this.client.connect().catch(() => {});
   }
 
   private isAvailable(): boolean {

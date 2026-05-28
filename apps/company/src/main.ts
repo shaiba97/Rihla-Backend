@@ -46,8 +46,12 @@ async function bootstrap() {
   await app.listen(process.env.COMPANY_PORT ?? 3001);
   new Logger('Bootstrap').log(`Company service started on port ${process.env.COMPANY_PORT ?? 3001}`);
 
-  getWhatsAppSock().catch((err: any) => {
-    new Logger('WhatsApp').error('WhatsApp init failed: ' + err.message);
-  });
+  if (process.env.WHATSAPP_ENABLED === 'true') {
+    getWhatsAppSock().catch((err: any) => {
+      new Logger('WhatsApp').error('WhatsApp init failed: ' + err.message);
+    });
+  } else {
+    new Logger('WhatsApp').log('WhatsApp not enabled (set WHATSAPP_ENABLED=true to enable)');
+  }
 }
 bootstrap();
