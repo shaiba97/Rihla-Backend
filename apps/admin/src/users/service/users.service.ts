@@ -111,7 +111,7 @@ export class UsersService {
           email: normalizedEmail,
           phone: normalizedPhone,
           password: hashedPassword,
-          role: (createUserDto.role as any) ?? 'USER',
+          role: (createUserDto.role?.toString().toUpperCase() as any) ?? 'USER',
         },
       });
 

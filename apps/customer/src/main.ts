@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { Logger } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { CustomerModule } from './customer.module';
 import { RedisIoAdapter } from '@app/websocket';
 import * as path from 'path';
@@ -29,6 +29,14 @@ async function bootstrap() {
     .split(',')
     .map(s => s.trim())
     .filter(s => s.startsWith('http://') || s.startsWith('https://'));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
+
   app.enableCors({
     origin: corsOrigins.length > 0 ? corsOrigins : ['http://localhost:4200', 'http://localhost:4100', 'http://localhost:4000'],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
