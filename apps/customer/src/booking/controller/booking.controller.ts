@@ -84,7 +84,7 @@ const receiptFilePipe = new ParseFilePipe({
     new ArabicFileSizeValidator(),
     new ArabicFileTypeValidator(),
   ],
-  fileIsRequired: true,
+  fileIsRequired: false,
 });
 
 // interface AuthenticatedRequest extends Request {
@@ -240,10 +240,10 @@ export class BookingController {
   @UseInterceptors(uploadInterceptor)
   async createPayment(
     @Body() dto: CreatePaymentDto,
-    @UploadedFile(receiptFilePipe) file: Express.Multer.File,
+    @UploadedFile(receiptFilePipe) file?: Express.Multer.File,
     @Req() req: Request,
   ) {
-    const receiptFile = `/uploads/receipts/${file.filename}`;
+    const receiptFile = file ? `/uploads/receipts/${file.filename}` : undefined;
     const paymentData = { ...dto, receiptFile, customerId: (req as any).user.id };
 
     return await this.paymentService.create(paymentData);
@@ -254,10 +254,10 @@ export class BookingController {
   @UseInterceptors(uploadInterceptor)
   async createBookingWithPayment(
     @Body() dto: CreateBookingWithPaymentDto,
-    @UploadedFile(receiptFilePipe) file: Express.Multer.File,
+    @UploadedFile(receiptFilePipe) file?: Express.Multer.File,
     @Req() req: Request,
   ) {
-    const receiptFile = `/uploads/receipts/${file.filename}`;
+    const receiptFile = file ? `/uploads/receipts/${file.filename}` : undefined;
     return await this.bookingService.createBookingWithPayment(
       dto,
       (req as any).user.id,

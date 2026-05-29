@@ -8,15 +8,12 @@ import {
 import { Server, Socket } from 'socket.io';
 import { WS_EVENTS } from './ws-events.constants';
 
+const wsOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)
+  : ['http://localhost:4200', 'http://localhost:4100', 'http://localhost:4000'];
+
 @WebSocketGateway({
-  cors: {
-    origin: [
-      'http://localhost:4200',
-      'http://localhost:4100',
-      'http://localhost:4000',
-    ],
-    credentials: true,
-  },
+  cors: { origin: [...wsOrigins, 'https://rihla-customer-frontend.onrender.com', 'https://rihla-admin.onrender.com', 'https://rihla-company.onrender.com'], credentials: true },
   namespace: '/',
 })
 export class RihlaWsGateway
