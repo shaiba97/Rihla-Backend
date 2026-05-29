@@ -10,7 +10,7 @@ import {
   IsOptional,
   IsNotEmpty,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { BookingStatus, PaymentStatus } from '@app/prisma';
 
 export class PassengerItemDto {
@@ -35,7 +35,7 @@ export class CreateBookingDto {
 
   @IsNumber({}, { each: true })
   @Type(() => Number)
-  @Min(1)
+  @Min(1, { each: true })
   seatNumbers: number[];
 
   @IsString()
@@ -65,7 +65,7 @@ export class UpdateBookingDto {
 
   @IsOptional()
   @IsNumber({}, { each: true })
-  @Min(1)
+  @Min(1, { each: true })
   seatNumbers?: number[];
 
   @IsOptional()
@@ -142,7 +142,12 @@ export class CreateBookingWithPaymentDto {
 
   @IsNumber({}, { each: true })
   @Type(() => Number)
-  @Min(1)
+  @Min(1, { each: true })
+  @Transform(({ value }) =>
+    typeof value === 'string'
+      ? (() => { try { return JSON.parse(value); } catch { return []; } })()
+      : value,
+  )
   seatNumbers: number[];
 
   @IsString()
@@ -152,17 +157,25 @@ export class CreateBookingWithPaymentDto {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => PassengerItemDto)
+  @Transform(({ value }) =>
+    typeof value === 'string'
+      ? (() => { try { return JSON.parse(value); } catch { return []; } })()
+      : value,
+  )
   passenger: PassengerItemDto[];
 
   @IsNumber()
+  @Type(() => Number)
   @Min(0)
   totalAmount: number;
 
   @IsNumber()
+  @Type(() => Number)
   @Min(0)
   companyAmount: number;
 
   @IsNumber()
+  @Type(() => Number)
   @Min(0)
   commissionAmount: number;
 
@@ -180,11 +193,13 @@ export class CreateBookingWithPaymentDto {
 
   @IsOptional()
   @IsNumber()
+  @Type(() => Number)
   @Min(0)
   price?: number;
 
   @IsOptional()
   @IsNumber()
+  @Type(() => Number)
   @Min(0)
   platformFeeAmount?: number;
 
