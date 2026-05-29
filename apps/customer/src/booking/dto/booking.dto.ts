@@ -94,18 +94,22 @@ export class CreatePaymentDto {
   customerId: string;
 
   @IsNumber()
+  @Type(() => Number)
   @Min(0)
   price: number;
 
   @IsNumber()
+  @Type(() => Number)
   @Min(0)
   totalAmount: number;
 
   @IsNumber()
+  @Type(() => Number)
   @Min(0)
   companyAmount: number;
 
   @IsNumber()
+  @Type(() => Number)
   @Min(0)
   commissionAmount: number;
 
@@ -131,6 +135,7 @@ export class CreatePaymentDto {
 
   @IsOptional()
   @IsNumber()
+  @Type(() => Number)
   @Min(0)
   platformFeeAmount?: number;
 }
@@ -221,21 +226,25 @@ export class UpdatePaymentDto {
 
   @IsOptional()
   @IsNumber()
+  @Type(() => Number)
   @Min(0)
   price?: number;
 
   @IsOptional()
   @IsNumber()
+  @Type(() => Number)
   @Min(0)
   totalAmount?: number;
 
   @IsOptional()
   @IsNumber()
+  @Type(() => Number)
   @Min(0)
   companyAmount?: number;
 
   @IsOptional()
   @IsNumber()
+  @Type(() => Number)
   @Min(0)
   commissionAmount?: number;
 
@@ -261,6 +270,7 @@ export class UpdatePaymentDto {
 
   @IsOptional()
   @IsNumber()
+  @Type(() => Number)
   @Min(0)
   platformFeeAmount?: number;
 }
