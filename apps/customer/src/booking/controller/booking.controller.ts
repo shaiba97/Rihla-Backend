@@ -239,9 +239,9 @@ export class BookingController {
   @UseGuards(AuthGuard('jwt'))
   @UseInterceptors(uploadInterceptor)
   async createPayment(
+    @Req() req: Request,
     @Body() dto: CreatePaymentDto,
     @UploadedFile(receiptFilePipe) file?: Express.Multer.File,
-    @Req() req: Request,
   ) {
     const receiptFile = file ? `/uploads/receipts/${file.filename}` : undefined;
     const paymentData = { ...dto, receiptFile, customerId: (req as any).user.id };
@@ -253,9 +253,9 @@ export class BookingController {
   @UseGuards(AuthGuard('jwt'))
   @UseInterceptors(uploadInterceptor)
   async createBookingWithPayment(
+    @Req() req: Request,
     @Body() dto: CreateBookingWithPaymentDto,
     @UploadedFile(receiptFilePipe) file?: Express.Multer.File,
-    @Req() req: Request,
   ) {
     const receiptFile = file ? `/uploads/receipts/${file.filename}` : undefined;
     return await this.bookingService.createBookingWithPayment(
