@@ -146,11 +146,10 @@ export class CreateBookingWithPaymentDto {
   tripId: string;
 
   @IsNumber({}, { each: true })
-  @Type(() => Number)
   @Min(1, { each: true })
   @Transform(({ value }) =>
     typeof value === 'string'
-      ? (() => { try { return JSON.parse(value); } catch { return []; } })()
+      ? (() => { try { const p = JSON.parse(value); return Array.isArray(p) ? p.map(Number) : []; } catch { return []; } })()
       : value,
   )
   seatNumbers: number[];
