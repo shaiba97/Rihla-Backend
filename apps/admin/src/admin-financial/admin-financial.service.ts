@@ -166,7 +166,7 @@ export class AdminFinancialService {
     ]);
 
     return {
-      platform: { activePlatformFee: activeFee ? { id: activeFee.id, amount: Number(activeFee.amount), currency: activeFee.currency, label: activeFee.description ?? null, isActive: activeFee.isActive } : null, pendingPaymentsRequiringAction: pendingPaymentsCount, totalPaymentAccounts, activePaymentAccounts },
+      platform: { activePlatformFee: activeFee ? { id: activeFee.id, percentage: Number(activeFee.percentage), label: activeFee.label ?? null, isActive: activeFee.isActive } : null, pendingPaymentsRequiringAction: pendingPaymentsCount, totalPaymentAccounts, activePaymentAccounts },
       users: { total: totalUsers, customers: totalCustomers, companies: totalCompanies, newToday: newUsersToday, newThisMonth: newUsersThisMonth },
       bookings: { total: totalBookings, confirmed: confirmedBookings, pending: pendingBookings, cancelled: cancelledBookings, today: bookingsToday, thisMonth: bookingsThisMonth, confirmationRate: totalBookings > 0 ? Math.round((confirmedBookings / totalBookings) * 100) : 0 },
       operations: { totalTrips, activeTrips: scheduledTrips, totalBuses },
@@ -217,7 +217,7 @@ export class AdminFinancialService {
       totalExpenses: totalExpensesVal,
       netRevenue: totalPlatformEarnings - totalExpensesVal,
       totalTransactions: successPayments.length, pendingPayments, confirmedPayments,
-      activeFee: activeFee ? { id: activeFee.id, amount: Number(activeFee.amount), currency: activeFee.currency, label: activeFee.description ?? null, isActive: activeFee.isActive, createdAt: activeFee.createdAt } : null,
+      activeFee: activeFee ? { id: activeFee.id, percentage: Number(activeFee.percentage), label: activeFee.label ?? null, isActive: activeFee.isActive, createdAt: activeFee.createdAt } : null,
       monthlyBreakdown,
       bookingStatus: { pending: bm['PENDING'] ?? 0, confirmed: bm['CONFIRMED'] ?? 0, cancelled: bm['CANCELLED'] ?? 0 },
       allTransactions: allPayments.length,

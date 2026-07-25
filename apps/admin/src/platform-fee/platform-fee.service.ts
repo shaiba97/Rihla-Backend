@@ -7,13 +7,21 @@ export class PlatformFeeService {
   ) {}
   async getAll() { return this.prisma.platformFee.findMany({ orderBy: { createdAt: 'desc' } }); }
   async getActive() { return this.prisma.platformFee.findFirst({ where: { isActive: true }, orderBy: { createdAt: 'desc' } }); }
-  async create(data: { amount: number; currency?: string; description?: string }) {
+  async getActivePercentage(): Promise<number> {
+    const activeFee = await this.prisma.platformFee.findFirst({ where: { isActive: true }, orderBy: { createdAt: 'desc' } });
+    return activeFee?.percentage ?? 0;
+  }
+  async calculateFeeAmount(ticketPrice: number): Promise<number> {
+    const pct = await this.getActivePercentage();
+    return Math.round((ticketPrice * pct) / 100);
+  }
+  async create(data: { percentage: number; label?: string }) {
     await this.prisma.platformFee.updateMany({ data: { isActive: false } });
-    const fee = await this.prisma.platformFee.create({ data: { amount: data.amount, currency: data.currency ?? 'جنيه سوداني', description: data.description, isActive: true } });
+    const fee = await this.prisma.platformFee.create({ data: { percentage: data.percentage, label: data.label, isActive: true } });
     this.wsGateway.emitPublic(WS_EVENTS.PLATFORM_FEE_CREATED, fee);
     return fee;
   }
-  async update(id: string, data: any) {
+  async update(id: string, data: { percentage?: number; label?: string }) {
     await this.findOne(id);
     const fee = await this.prisma.platformFee.update({ where: { id }, data });
     this.wsGateway.emitPublic(WS_EVENTS.PLATFORM_FEE_UPDATED, fee);
