@@ -12,8 +12,8 @@ nginx
 npx prisma migrate resolve --rolled-back 20260726000001_platform_fee_percentage --schema=libs/prisma/schema.prisma || true
 npx prisma migrate deploy --schema=libs/prisma/schema.prisma
 
-# Direct fallback: ensure PlatformFee.label column exists (bypasses Prisma migration issues)
-echo "ALTER TABLE \"PlatformFee\" ADD COLUMN IF NOT EXISTS \"label\" TEXT;" | npx prisma db execute --stdin 2>/dev/null || true
+# Direct fallback: ensure PlatformFee.label column exists (bypasses Prisma migration system)
+node scripts/fix_production_db.js || true
 
 node dist/apps/admin/main &
 node dist/apps/company/main &
