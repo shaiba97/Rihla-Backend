@@ -7,6 +7,7 @@ export class AwardController {
   @Post('packs') createPack(@Body() body: any) { return this.svc.createPack(body); }
   @Patch('packs/:id') updatePack(@Param('id') id: string, @Body() body: any) { return this.svc.updatePack(id, body); }
   @Delete('packs/:id') removePack(@Param('id') id: string) { return this.svc.removePack(id); }
+  @Get('user/:userId') getUserAwards(@Param('userId') userId: string) { return this.svc.getUserAwards(userId); }
   @Get('pending') getPending() { return this.svc.getPending(); }
   @Post('approve/:id') approve(@Param('id') id: string) { return this.svc.approve(id); }
   @Post('reject/:id') reject(@Param('id') id: string) { return this.svc.reject(id); }

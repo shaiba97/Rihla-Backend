@@ -11,6 +11,17 @@ export class AwardService {
     return this.prisma.awardPack.update({ where: { id }, data });
   }
   async removePack(id: string) { await this.findOnePack(id); return this.prisma.awardPack.delete({ where: { id } }); }
+  async getUserAwards(userId: string) {
+    const awards = await this.prisma.userAward.findMany({
+      where: { userId },
+      include: { Pack: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const totalValue = awards
+      .filter(a => a.status === 'APPROVED')
+      .reduce((sum, a) => sum + Number(a.Pack.awardValue), 0);
+    return { awards, totalValue, count: awards.length, approvedCount: awards.filter(a => a.status === 'APPROVED').length };
+  }
   async getPending() {
     return this.prisma.userAward.findMany({
       where: { status: 'PENDING' as AwardStatus },
