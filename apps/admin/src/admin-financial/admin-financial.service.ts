@@ -246,7 +246,7 @@ export class AdminFinancialService {
       paymentMethod: p.paymentMethod, transactionId: p.transactionId, recieptFile: p.receiptFile,
       createdAt: p.createdAt, bookingId: p.bookingId,
       seatNumbers: p.Booking?.seatNumbers,
-      passenger: p.Booking?.passenger,
+      passenger: this.normalizePassengerData(p.Booking?.passenger),
       customer: { name: p.Booking?.Customer?.name, phone: p.Booking?.Customer?.phone },
       trip: { from: p.Booking?.Trip?.fromCity, to: p.Booking?.Trip?.toCity, date: p.Booking?.Trip?.departureDate, time: p.Booking?.Trip?.departureTime },
     }));
@@ -465,5 +465,21 @@ export class AdminFinancialService {
         ...c, revenue: Math.round(c.revenue), platformFees: Math.round(c.platformFees), companyIncome: Math.round(c.companyIncome),
       })),
     })).sort((a: { period: string; platformRevenue: number; platformExpenses: number; platformNet: number; count: number; companies: { id: string; name: string; revenue: number; platformFees: number; companyIncome: number; count: number }[] }, b: { period: string; platformRevenue: number; platformExpenses: number; platformNet: number; count: number; companies: { id: string; name: string; revenue: number; platformFees: number; companyIncome: number; count: number }[] }) => a.period.localeCompare(b.period));
+  }
+
+  private normalizePassengerData(passenger: any): any[] {
+    if (!Array.isArray(passenger)) {
+      return [];
+    }
+    return passenger.map((pp: any) => {
+      if (!pp || typeof pp !== 'object') {
+        return { name: '', age: 0, gender: '' };
+      }
+      return {
+        name: pp.name ?? pp.passengerName ?? '',
+        age: pp.age ?? pp.passengerAge ?? 0,
+        gender: pp.gender ?? pp.passengerGender ?? '',
+      };
+    });
   }
 }
