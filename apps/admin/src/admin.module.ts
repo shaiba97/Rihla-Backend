@@ -6,6 +6,7 @@ import { ExpenseModule } from './expense/expense.module';
 import { AdminFinancialModule } from './admin-financial/admin-financial.module';
 import { AdminUsersModule } from './admin-users/admin-users.module';
 import { SupportContactsModule } from './support-contacts/support-contacts.module';
+import { AwardModule } from './award/award.module';
 import { BlogModule } from './blog/blog.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { TafiyaWsModule } from '@app/websocket';
@@ -13,7 +14,7 @@ import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 
 @Module({
-  imports: [UsersModule, PlatformFeeModule, PaymentAccountsModule, ExpenseModule, AdminFinancialModule, AdminUsersModule, SupportContactsModule, BlogModule, NotificationsModule, TafiyaWsModule],
+  imports: [UsersModule, PlatformFeeModule, PaymentAccountsModule, ExpenseModule, AdminFinancialModule, AdminUsersModule, SupportContactsModule, AwardModule, BlogModule, NotificationsModule, TafiyaWsModule],
   controllers: [AdminController],
   providers: [AdminService],
 })

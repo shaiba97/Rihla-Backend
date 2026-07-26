@@ -289,6 +289,8 @@ export class AdminFinancialService {
       ticketUrl = result.publicUrl;
     } catch { /* PDF generation not critical */ }
 
+    this.evaluateAwards(customerId);
+
     try {
       const phone = payment.Booking?.passengerContact;
       if (phone) {
@@ -298,6 +300,55 @@ export class AdminFinancialService {
     } catch { /* WhatsApp not available */ }
 
     return { message: 'تم تأكيد الدفعة والحجز بنجاح', ticketUrl };
+  }
+
+  private async evaluateAwards(customerId: string) {
+    try {
+      const packs = await this.prisma.awardPack.findMany({ where: { isActive: true } });
+      if (!packs.length) return;
+
+      const [bookings, existingAwards] = await Promise.all([
+        this.prisma.booking.findMany({
+          where: { customerId, status: 'CONFIRMED' },
+          include: { Payment: { select: { status: true } } },
+          orderBy: { createdAt: 'asc' },
+        }),
+        this.prisma.userAward.findMany({ where: { userId: customerId }, select: { packId: true } }),
+      ]);
+
+      const earnedPackIds = new Set(existingAwards.map(a => a.packId));
+      const confirmedBookings = bookings.filter(b => b.Payment?.status === 'SUCCESS');
+      const totalBookings = confirmedBookings.length;
+      const uniqueTripIds = new Set(confirmedBookings.map(b => b.tripId)).size;
+      const activeDays = new Set(confirmedBookings.map(b => new Date(b.createdAt).toISOString().slice(0, 10))).size;
+
+      let consecutiveDays = 0;
+      if (confirmedBookings.length > 0) {
+        const dateSet = [...new Set(confirmedBookings.map(b => new Date(b.createdAt).toISOString().slice(0, 10)))].sort();
+        let streak = 1;
+        for (let i = 1; i < dateSet.length; i++) {
+          const prev = new Date(dateSet[i - 1]);
+          const curr = new Date(dateSet[i]);
+          const diff = (curr.getTime() - prev.getTime()) / 86400000;
+          if (diff === 1) { streak++; consecutiveDays = Math.max(consecutiveDays, streak); }
+          else streak = 1;
+        }
+        consecutiveDays = Math.max(consecutiveDays, streak > 1 ? streak : 1);
+      }
+
+      for (const pack of packs) {
+        if (earnedPackIds.has(pack.id)) continue;
+        const meets = totalBookings >= pack.minBookings
+          && uniqueTripIds >= pack.minTrips
+          && activeDays >= pack.activeDays
+          && consecutiveDays >= pack.consecutiveDays;
+        if (meets) {
+          await this.prisma.userAward.create({ data: { userId: customerId, packId: pack.id } });
+        }
+      }
+    } catch (e) {
+      Logger.warn('Award evaluation skipped (non-blocking): ' + (e as Error).message);
+    }
   }
 
   async rejectPayment(paymentId: string, reason?: string) {
