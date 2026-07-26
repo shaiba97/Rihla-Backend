@@ -3,10 +3,10 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 export class AwardService {
   constructor(private readonly prisma: PrismaService) {}
   async getPacks() { return this.prisma.awardPack.findMany({ orderBy: { createdAt: 'desc' }, include: { _count: { select: { UserAward: true } } } }); }
-  async createPack(data: { title: string; description?: string; icon?: string; minBookings?: number; minTrips?: number; activeDays?: number; consecutiveDays?: number; awardValue: number }) {
-    return this.prisma.awardPack.create({ data: { title: data.title, description: data.description, icon: data.icon, minBookings: data.minBookings ?? 0, minTrips: data.minTrips ?? 0, activeDays: data.activeDays ?? 0, consecutiveDays: data.consecutiveDays ?? 0, awardValue: data.awardValue } });
+  async createPack(data: { title: string; description?: string; icon?: string; minBookings?: number; awardValue: number }) {
+    return this.prisma.awardPack.create({ data: { title: data.title, description: data.description, icon: data.icon, minBookings: data.minBookings ?? 0, awardValue: data.awardValue } });
   }
-  async updatePack(id: string, data: { title?: string; description?: string; icon?: string; minBookings?: number; minTrips?: number; activeDays?: number; consecutiveDays?: number; awardValue?: number; isActive?: boolean }) {
+  async updatePack(id: string, data: { title?: string; description?: string; icon?: string; minBookings?: number; awardValue?: number; isActive?: boolean }) {
     await this.findOnePack(id);
     return this.prisma.awardPack.update({ where: { id }, data });
   }

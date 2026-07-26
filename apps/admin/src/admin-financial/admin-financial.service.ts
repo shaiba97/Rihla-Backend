@@ -319,30 +319,10 @@ export class AdminFinancialService {
       const earnedPackIds = new Set(existingAwards.map(a => a.packId));
       const confirmedBookings = bookings.filter(b => b.Payment?.status === 'SUCCESS');
       const totalBookings = confirmedBookings.length;
-      const uniqueTripIds = new Set(confirmedBookings.map(b => b.tripId)).size;
-      const activeDays = new Set(confirmedBookings.map(b => new Date(b.createdAt).toISOString().slice(0, 10))).size;
-
-      let consecutiveDays = 0;
-      if (confirmedBookings.length > 0) {
-        const dateSet = [...new Set(confirmedBookings.map(b => new Date(b.createdAt).toISOString().slice(0, 10)))].sort();
-        let streak = 1;
-        for (let i = 1; i < dateSet.length; i++) {
-          const prev = new Date(dateSet[i - 1]);
-          const curr = new Date(dateSet[i]);
-          const diff = (curr.getTime() - prev.getTime()) / 86400000;
-          if (diff === 1) { streak++; consecutiveDays = Math.max(consecutiveDays, streak); }
-          else streak = 1;
-        }
-        consecutiveDays = Math.max(consecutiveDays, streak > 1 ? streak : 1);
-      }
 
       for (const pack of packs) {
         if (earnedPackIds.has(pack.id)) continue;
-        const meets = totalBookings >= pack.minBookings
-          && uniqueTripIds >= pack.minTrips
-          && activeDays >= pack.activeDays
-          && consecutiveDays >= pack.consecutiveDays;
-        if (meets) {
+        if (totalBookings >= pack.minBookings) {
           await this.prisma.userAward.create({ data: { userId: customerId, packId: pack.id } });
         }
       }

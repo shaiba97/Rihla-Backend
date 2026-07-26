@@ -275,9 +275,7 @@ model AwardPack {
   description     String?
   icon            String?
   minBookings     Int      @default(0)
-  minTrips        Int      @default(0)
-  activeDays      Int      @default(0)
-  consecutiveDays Int      @default(0)
+
   awardValue      Decimal  @db.Decimal(10, 2)
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())

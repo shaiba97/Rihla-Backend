@@ -8,9 +8,7 @@ CREATE TABLE "AwardPack" (
     "description" TEXT,
     "icon" TEXT,
     "minBookings" INTEGER NOT NULL DEFAULT 0,
-    "minTrips" INTEGER NOT NULL DEFAULT 0,
-    "activeDays" INTEGER NOT NULL DEFAULT 0,
-    "consecutiveDays" INTEGER NOT NULL DEFAULT 0,
+
     "awardValue" DECIMAL(10,2) NOT NULL,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
