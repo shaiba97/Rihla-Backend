@@ -304,8 +304,10 @@ export class AdminFinancialService {
 
   private async evaluateAwards(customerId: string) {
     try {
-      const packs = await this.prisma.awardPack.findMany({ where: { isActive: true } });
+      const packs = await this.prisma.awardPack.findMany({ where: { isActive: true }, orderBy: { awardValue: 'desc' } });
       if (!packs.length) return;
+
+      const highestPack = packs[0];
 
       const [bookings, existingAwards] = await Promise.all([
         this.prisma.booking.findMany({
@@ -320,11 +322,8 @@ export class AdminFinancialService {
       const confirmedBookings = bookings.filter(b => b.Payment?.status === 'SUCCESS');
       const totalBookings = confirmedBookings.length;
 
-      for (const pack of packs) {
-        if (earnedPackIds.has(pack.id)) continue;
-        if (totalBookings >= pack.minBookings) {
-          await this.prisma.userAward.create({ data: { userId: customerId, packId: pack.id } });
-        }
+      if (!earnedPackIds.has(highestPack.id) && totalBookings >= highestPack.minBookings) {
+        await this.prisma.userAward.create({ data: { userId: customerId, packId: highestPack.id } });
       }
     } catch (e) {
       Logger.warn('Award evaluation skipped (non-blocking): ' + (e as Error).message);
