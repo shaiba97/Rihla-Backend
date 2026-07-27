@@ -108,7 +108,7 @@ export class BookingService {
       });
 
       const platformFeeRate = activeFee ? Number(activeFee.percentage) : 0;
-      const platformFeeAmount = platformFeeRate * seatCount;
+      const platformFeeAmount = Math.round(baseAmount * platformFeeRate / 100);
       const totalAmount = baseAmount + platformFeeAmount;
 
       return {
@@ -216,8 +216,8 @@ export class BookingService {
           orderBy: { createdAt: 'desc' },
         });
 
-      const platformFeeRate = activeFee ? Number(activeFee.percentage) : 0;
-        const platformFeeAmount = platformFeeRate * seatCount;
+        const platformFeeRate = activeFee ? Number(activeFee.percentage) : 0;
+        const platformFeeAmount = Math.round(baseAmount * platformFeeRate / 100);
         const serverCompanyAmount = baseAmount;
         const serverTotalAmount = baseAmount + platformFeeAmount;
 
