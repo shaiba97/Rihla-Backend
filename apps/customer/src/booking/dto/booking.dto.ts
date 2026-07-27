@@ -16,16 +16,16 @@ import { BookingStatus, PaymentStatus } from '@app/prisma';
 export class PassengerItemDto {
   @IsString()
   @MinLength(2)
-  name: string;
+  name: string = '';
 
   @IsNumber()
   @Min(1)
   @Max(120)
-  age: number;
+  age: number = 0;
 
   @IsString()
   @IsEnum(['MALE', 'FEMALE'])
-  gender: 'MALE' | 'FEMALE';
+  gender: 'MALE' | 'FEMALE' = 'MALE';
 }
 
 export class CreateBookingDto {
