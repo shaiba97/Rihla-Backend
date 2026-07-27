@@ -78,9 +78,9 @@ export class PaymentService {
     });
 
     const platformFeePct = activeFee ? Number(activeFee.percentage) : 0;
-    const platformFeeAmount = Math.round((baseAmount * platformFeePct) / 100);
-    const serverCompanyAmount = baseAmount;
-    const serverTotalAmount = baseAmount + platformFeeAmount;
+    const platformFeeAmount = Math.round(baseAmount * platformFeePct) / 100;
+    const serverCompanyAmount = baseAmount - platformFeeAmount;
+    const serverTotalAmount = baseAmount;
 
     if (
       createPaymentDto.companyAmount !== undefined &&

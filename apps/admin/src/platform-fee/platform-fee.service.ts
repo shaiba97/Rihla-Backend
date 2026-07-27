@@ -13,7 +13,7 @@ export class PlatformFeeService {
   }
   async calculateFeeAmount(ticketPrice: number): Promise<number> {
     const pct = await this.getActivePercentage();
-    return Math.round((ticketPrice * pct) / 100);
+    return Math.round(ticketPrice * pct) / 100;
   }
   async create(data: { percentage: number; label?: string }) {
     await this.prisma.platformFee.updateMany({ data: { isActive: false } });
