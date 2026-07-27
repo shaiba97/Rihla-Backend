@@ -4,6 +4,7 @@ if (!url) { console.error('No DATABASE_URL found'); process.exit(1); }
 const client = new Client({ connectionString: url });
 
 const MIGRATION_NAME = '20260726000004_add_award_system';
+const REPAIR_MIGRATION = '20260728000001_repair_platform_fees';
 
 async function run() {
   await client.connect();
@@ -66,7 +67,32 @@ async function run() {
     try { await client.query('ALTER TABLE "UserAward" ADD CONSTRAINT "UserAward_packId_fkey" FOREIGN KEY ("packId") REFERENCES "AwardPack"("id") ON DELETE CASCADE ON UPDATE CASCADE'); } catch {}
     console.log('OK: UserAward indexes and FK ensured');
 
-    // 4. Register migration in _prisma_migrations so prisma migrate deploy skips it
+    // 4. Repair platform fee amounts for legacy records (old formula used percentage * seatCount instead of percentage * baseAmount / 100)
+    const repairCheck = await client.query('SELECT 1 FROM "_prisma_migrations" WHERE "migration_name" = $1', [REPAIR_MIGRATION]);
+    if (repairCheck.rowCount === 0) {
+      const activeFee = await client.query('SELECT percentage FROM "PlatformFee" WHERE "isActive" = true ORDER BY "createdAt" DESC LIMIT 1');
+      const feePct = activeFee.rows.length > 0 ? Number(activeFee.rows[0].percentage) : 0;
+      if (feePct > 0) {
+        const fix = await client.query(`
+          UPDATE "Payment"
+          SET
+            "platformFeeAmount" = ROUND(CAST("companyAmount" AS numeric) * $1 / 100),
+            "totalAmount" = "companyAmount" + ROUND(CAST("companyAmount" AS numeric) * $1 / 100)
+          WHERE status = 'SUCCESS'
+            AND CAST("platformFeeAmount" AS numeric) <> ROUND(CAST("companyAmount" AS numeric) * $1 / 100)
+        `, [feePct]);
+        console.log(`OK: Repaired ${fix.rowCount} payment platform fees at ${feePct}%`);
+      }
+      await client.query(
+        'INSERT INTO "_prisma_migrations" ("id", "migration_name", "started_at", "finished_at") VALUES ($1, $2, NOW(), NOW())',
+        [require('crypto').randomUUID(), REPAIR_MIGRATION]
+      );
+      console.log('OK: Repair migration', REPAIR_MIGRATION, 'registered');
+    } else {
+      console.log('OK: Platform fee repair already applied');
+    }
+
+    // 6. Register migration in _prisma_migrations so prisma migrate deploy skips it
     const existing = await client.query('SELECT 1 FROM "_prisma_migrations" WHERE "migration_name" = $1', [MIGRATION_NAME]);
     if (existing.rowCount === 0) {
       await client.query(
