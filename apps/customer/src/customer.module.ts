@@ -7,11 +7,12 @@ import { BookingModule } from './booking/booking.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { BlogModule } from './blog/blog.module';
 import { AwardsModule } from './awards/awards.module';
+import { TicketsModule } from './tickets/tickets.module';
 import { TafiyaWsModule } from '@app/websocket';
 import { MulterExceptionFilter } from './filters/multer-exception.filter';
 
 @Module({
-  imports: [UsersModule, BookingModule, NotificationsModule, BlogModule, AwardsModule, TafiyaWsModule],
+  imports: [UsersModule, BookingModule, NotificationsModule, BlogModule, AwardsModule, TicketsModule, TafiyaWsModule],
   controllers: [CustomerController],
   providers: [
     CustomerService,
