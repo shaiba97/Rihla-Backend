@@ -4,7 +4,6 @@ if (!url) { console.error('No DATABASE_URL found'); process.exit(1); }
 const client = new Client({ connectionString: url });
 
 const MIGRATION_NAME = '20260726000004_add_award_system';
-const REPAIR2_MIGRATION = '20260728000002_repair_payment_model';
 
 
 async function run() {
@@ -68,39 +67,8 @@ async function run() {
     try { await client.query('ALTER TABLE "UserAward" ADD CONSTRAINT "UserAward_packId_fkey" FOREIGN KEY ("packId") REFERENCES "AwardPack"("id") ON DELETE CASCADE ON UPDATE CASCADE'); } catch {}
     console.log('OK: UserAward indexes and FK ensured');
 
-    // 4. Migrate existing Payment records from ADD model to SUBTRACT model
-    // Old: totalAmount = baseAmount + (baseAmount * pct / 100), companyAmount = baseAmount (fee added on top)
-    // New: totalAmount = baseAmount, platformFee = totalAmount * pct / 100, companyAmount = totalAmount - platformFee (fee deducted)
-    const repairCheck = await client.query('SELECT 1 FROM "_prisma_migrations" WHERE "migration_name" = $1', [REPAIR2_MIGRATION]);
-    if (repairCheck.rowCount === 0) {
-      const activeFee2 = await client.query('SELECT percentage FROM "PlatformFee" WHERE "isActive" = true ORDER BY "createdAt" DESC LIMIT 1');
-      const feePct = activeFee2.rows.length > 0 ? Number(activeFee2.rows[0].percentage) : 0;
-      if (feePct > 0) {
-        // Migrate records where totalAmount != companyAmount (old ADD model stored fee in totalAmount)
-        // totalAmount_new = companyAmount_old (the base ticket price, stripping the added fee)
-        // platformFee_new = ROUND(companyAmount_old * feePct / 100)
-        // companyAmount_new = companyAmount_old - platformFee_new
-        const fixResult = await client.query(`
-          UPDATE "Payment"
-          SET
-            "totalAmount" = "companyAmount",
-            "platformFeeAmount" = ROUND(CAST("companyAmount" AS numeric) * $1 / 100, 2),
-            "companyAmount" = CAST("companyAmount" AS numeric) - ROUND(CAST("companyAmount" AS numeric) * $1 / 100, 2)
-          WHERE status = 'SUCCESS'
-            AND CAST("totalAmount" AS numeric) <> CAST("companyAmount" AS numeric)
-        `, [feePct]);
-        console.log(`OK: Migrated ${fixResult.rowCount} payments to SUBTRACT model at ${feePct}%`);
-      } else {
-        console.log('WARN: No active PlatformFee found. Skipping payment migration.');
-      }
-      await client.query(
-        'INSERT INTO "_prisma_migrations" ("id", "migration_name", "started_at", "finished_at") VALUES ($1, $2, NOW(), NOW())',
-        [require('crypto').randomUUID(), REPAIR2_MIGRATION]
-      );
-      console.log('OK: Repair migration', REPAIR2_MIGRATION, 'registered');
-    } else {
-      console.log('OK: Payment model repair already applied');
-    }
+    // Payment migration REMOVED — server code handles calculations correctly on new bookings.
+    // Existing records are not modified.
 
     // 5. Register migration in _prisma_migrations so prisma migrate deploy skips it
     const existing = await client.query('SELECT 1 FROM "_prisma_migrations" WHERE "migration_name" = $1', [MIGRATION_NAME]);
