@@ -27,13 +27,15 @@ export class TafiyaWsGateway
   handleDisconnect(_client: Socket) {}
 
   @SubscribeMessage(WS_EVENTS.JOIN_ROOM)
-  handleJoinRoom(client: Socket, room: string) {
-    client.join(room);
+  handleJoinRoom(client: Socket, room: string | { room: string }) {
+    const roomName = typeof room === 'string' ? room : room.room;
+    client.join(roomName);
   }
 
   @SubscribeMessage(WS_EVENTS.LEAVE_ROOM)
-  handleLeaveRoom(client: Socket, room: string) {
-    client.leave(room);
+  handleLeaveRoom(client: Socket, room: string | { room: string }) {
+    const roomName = typeof room === 'string' ? room : room.room;
+    client.leave(roomName);
   }
 
   @SubscribeMessage(WS_EVENTS.WATCH_SEATS)
