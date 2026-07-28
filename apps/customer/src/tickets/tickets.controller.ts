@@ -96,8 +96,8 @@ export class TicketsController {
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: system-ui, -apple-system, sans-serif;
-    background: #EEF2FF;
-    color: #1E1B4B;
+    background: #f4f4f4;
+    color: #134E4A;
     padding: 12px;
     display: flex;
     justify-content: center;
@@ -110,7 +110,7 @@ export class TicketsController {
     overflow: hidden;
   }
   .header {
-    background: #4F46E5;
+    background: #0D9488;
     color: #fff;
     padding: 20px 24px 16px;
     display: flex;
@@ -124,7 +124,7 @@ export class TicketsController {
   .section { margin-bottom: 20px; }
   .section:last-child { margin-bottom: 0; }
   .section-title {
-    font-size: 13px; font-weight: 700; color: #4F46E5;
+    font-size: 13px; font-weight: 700; color: #0D9488;
     margin-bottom: 10px; letter-spacing: 0.02em;
     display: flex; align-items: center; gap: 6px;
   }
@@ -138,19 +138,19 @@ export class TicketsController {
   .info-col { display: flex; flex-direction: column; gap: 2px; }
   .info-col-r { text-align: right; }
   .info-col-l { text-align: left; }
-  .info-label { font-size: 10px; color: #64748B; text-transform: uppercase; letter-spacing: 0.04em; }
-  .info-val { font-size: 14px; font-weight: 700; color: #1E1B4B; line-height: 1.3; }
-  .info-sub { font-size: 11px; color: #64748B; }
+  .info-label { font-size: 10px; color: #0F766E; text-transform: uppercase; letter-spacing: 0.04em; }
+  .info-val { font-size: 14px; font-weight: 700; color: #134E4A; line-height: 1.3; }
+  .info-sub { font-size: 11px; color: #0F766E; }
   .info-divider {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     padding: 0 4px;
   }
   .info-divider svg { display: block; }
-  .info-divider span { font-size: 10px; color: #64748B; margin-top: 4px; white-space: nowrap; }
+  .info-divider span { font-size: 10px; color: #0F766E; margin-top: 4px; white-space: nowrap; }
 
   .plate {
     display: inline-flex; flex-direction: column; align-items: center;
-    background: #FEF9E7; border: 2px solid #1E1B4B; border-radius: 6px;
+    background: #FEF9E7; border: 2px solid #134E4A; border-radius: 6px;
     padding: 4px 14px; min-width: 120px;
   }
   .plate-top { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; }
@@ -166,8 +166,8 @@ export class TicketsController {
     font-size: 12px;
   }
   .passengers-table th {
-    background: #EBEEF8;
-    color: #1E1B4B;
+    background: #CCFBF1;
+    color: #134E4A;
     font-weight: 600;
     padding: 8px 10px;
     text-align: right;
@@ -176,7 +176,7 @@ export class TicketsController {
   .passengers-table th:last-child { border-radius: 0 8px 0 0; }
   .passengers-table td {
     padding: 8px 10px;
-    border-bottom: 1px solid #EBEEF8;
+    border-bottom: 1px solid #CCFBF1;
   }
   .passengers-table tr:last-child td { border-bottom: none; }
   .ta-center { text-align: center !important; }
@@ -185,10 +185,10 @@ export class TicketsController {
     display: flex; justify-content: space-between; align-items: center;
     padding: 6px 0;
   }
-  .pay-label { font-size: 12px; color: #64748B; }
+  .pay-label { font-size: 12px; color: #0F766E; }
   .pay-value { font-size: 14px; font-weight: 700; }
-  .pay-amount { font-size: 20px; font-weight: 800; color: #4F46E5; }
-  .pay-hr { border: none; border-top: 1px solid #EBEEF8; margin: 6px 0; }
+  .pay-amount { font-size: 20px; font-weight: 800; color: #0D9488; }
+  .pay-hr { border: none; border-top: 1px solid #CCFBF1; margin: 6px 0; }
 
   .badge {
     display: inline-flex; align-items: center; gap: 4px;
@@ -196,22 +196,22 @@ export class TicketsController {
     border-radius: 999px;
     font-size: 11px;
     font-weight: 700;
-    background: #DCFCE7;
-    color: #166534;
+    background: #CCFBF1;
+    color: #0D9488;
   }
   .badge svg { width: 14px; height: 14px; }
 
   .notice {
-    background: #EBEEF8;
+    background: #CCFBF1;
     border-radius: 12px;
     padding: 12px 16px;
     font-size: 11px;
-    color: #64748B;
+    color: #0F766E;
     line-height: 1.6;
   }
   .notice strong { color: #EA580C; font-weight: 700; }
 
-  .muted { font-size: 12px; color: #64748B; }
+  .muted { font-size: 12px; color: #0F766E; }
 </style>
 </head>
 <body>
@@ -223,7 +223,7 @@ export class TicketsController {
   <div class="body">
     <div class="section">
       <div class="section-title">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0D9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         معلومات الرحلة
       </div>
       <div class="info-row">
@@ -232,10 +232,10 @@ export class TicketsController {
           <div class="info-val">${trip?.fromCity || '—'}</div>
           <div class="info-sub">${trip?.fromState || ''} ${trip?.fromStation || ''}</div>
           <div class="info-sub">${dt(trip?.departureDate)}</div>
-          <div class="info-sub" style="font-weight:600;color:#1E1B4B">${tm(trip?.departureTime)}</div>
+          <div class="info-sub" style="font-weight:600;color:#134E4A">${tm(trip?.departureTime)}</div>
         </div>
         <div class="info-divider">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#818CF8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5EEAD4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
           <span>${duration()}</span>
         </div>
         <div class="info-col info-col-l">
@@ -243,7 +243,7 @@ export class TicketsController {
           <div class="info-val">${trip?.toCity || '—'}</div>
           <div class="info-sub">${trip?.toState || ''} ${trip?.toStation || ''}</div>
           <div class="info-sub">${dt(trip?.arrivalDate)}</div>
-          <div class="info-sub" style="font-weight:600;color:#1E1B4B">${tm(trip?.arrivalTime)}</div>
+          <div class="info-sub" style="font-weight:600;color:#134E4A">${tm(trip?.arrivalTime)}</div>
         </div>
       </div>
     </div>
@@ -251,7 +251,7 @@ export class TicketsController {
     ${bus ? `
     <div class="section">
       <div class="section-title">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18" r="2.5"/><circle cx="18.5" cy="18" r="2.5"/></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0D9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18" r="2.5"/><circle cx="18.5" cy="18" r="2.5"/></svg>
         الحافلة
       </div>
       <div class="bus-row">
@@ -263,7 +263,7 @@ export class TicketsController {
 
     <div class="section">
       <div class="section-title">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0D9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         المسافرون
       </div>
       ${passengersTable()}
@@ -272,7 +272,7 @@ export class TicketsController {
     ${payment ? `
     <div class="section">
       <div class="section-title">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0D9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
         تفاصيل الدفع
       </div>
       <div class="pay-row"><span class="pay-label">طريقة الدفع</span><span class="pay-value">${payment.paymentMethod || '—'}</span></div>
