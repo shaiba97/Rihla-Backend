@@ -317,8 +317,23 @@ export class BookingService {
             route: '/financial',
           },
           emitTo: 'admin',
+          sendPush: true,
         });
       }
+
+      await this.notifications.create({
+        userId: customerId,
+        type: 'BOOKING_CREATED',
+        title: 'تم إنشاء حجزك',
+        body: `تم حجز مقعد رقم ${sanitizedSeats.join('، ')} بنجاح. في انتظار تأكيد الدفع`,
+        data: {
+          bookingId: result.booking.id,
+          seatNumber: sanitizedSeats,
+          tripId: dto.tripId,
+          route: '/bookings',
+        },
+        sendPush: true,
+      });
 
       const ticket = await this.paymentService.generateTicket(
         result.booking,

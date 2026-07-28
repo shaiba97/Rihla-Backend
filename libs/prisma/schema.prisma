@@ -90,6 +90,7 @@ model users {
   Payment       Payment[]
   Bus           Bus[]
   notifications Notification[]
+  deviceTokens  DeviceToken[]
   BlogPost      BlogPost[]
 
   @@index([email])
@@ -183,6 +184,19 @@ enum BookingStatus {
   PENDING
   CONFIRMED
   CANCELLED
+}
+
+model DeviceToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      users    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String
+  platform  String   /// ios | android | web
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, token])
+  @@index([token])
 }
 
 model Notification {
