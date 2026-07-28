@@ -58,6 +58,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   get blogPost() { return this.prisma.blogPost; }
   get awardPack() { return this.prisma.awardPack; }
   get userAward() { return this.prisma.userAward; }
+  get deviceToken() { return this.prisma.deviceToken; }
 
   async $connect() { return this.prisma.$connect(); }
   async $disconnect() { return this.prisma.$disconnect(); }

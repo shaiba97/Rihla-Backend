@@ -74,7 +74,7 @@ export class NotificationsService {
       });
       if (tokens.length === 0) return;
       await this.push.sendMulticast(
-        tokens.map(t => t.token),
+        tokens.map((t: { token: string }) => t.token),
         msg,
       );
     } catch { /* silent */ }
