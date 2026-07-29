@@ -5,6 +5,7 @@ import { RedisIoAdapter } from '@app/websocket';
 import * as path from 'path';
 import * as express from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
+import * as fs from 'fs';
 
 function validateEnv(): void {
   const required = ['DATABASE_URL', 'JWT_SECRET'];
@@ -47,6 +48,24 @@ async function bootstrap() {
     allowedHeaders: 'Content-Type, Authorization',
     credentials: true,
   });
+
+  const uploadDir = path.join(__dirname, '../../../upload');
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+    logger.log(`Created upload directory: ${uploadDir}`);
+  }
+
+  const uploadsDir = path.join(__dirname, '../../../uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+    logger.log(`Created uploads directory: ${uploadsDir}`);
+  }
+
+  const payoutsDir = path.join(uploadsDir, 'payouts');
+  if (!fs.existsSync(payoutsDir)) {
+    fs.mkdirSync(payoutsDir, { recursive: true });
+    logger.log(`Created payouts directory: ${payoutsDir}`);
+  }
 
   const serveSafe = (dir: string) => (req: any, res: any, next: any) => {
     const ext = path.extname(req.path).toLowerCase();
