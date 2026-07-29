@@ -74,7 +74,7 @@ export class BookingService {
       }
 
       const passengerData = (createBookingDto.passenger ?? [])
-        .filter((p: any) => p && p.name && p.age && p.gender)
+        .filter((p: any) => p && p.name && p.name !== '' && p.age != null && p.gender)
         .map((p: any) => ({ name: String(p.name), age: Number(p.age), gender: String(p.gender) }));
 
       const booking = await this.prisma.booking.create({
@@ -197,7 +197,7 @@ export class BookingService {
         const baseAmount = tripPrice * seatCount;
 
         const passengerData = (dto.passenger ?? [])
-          .filter((p: any) => p && p.name && p.age && p.gender)
+          .filter((p: any) => p && p.name && p.name !== '' && p.age != null && p.gender)
           .map((p: any) => ({ name: String(p.name), age: Number(p.age), gender: String(p.gender) }));
 
         const booking = await tx.booking.create({

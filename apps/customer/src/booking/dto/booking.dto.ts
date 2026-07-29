@@ -159,14 +159,12 @@ export class CreateBookingWithPaymentDto {
   passengerContact: string;
 
   @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => PassengerItemDto)
   @Transform(({ value }) =>
     typeof value === 'string'
       ? (() => { try { return JSON.parse(value); } catch { return []; } })()
       : value,
   )
-  passenger: PassengerItemDto[];
+  passenger: any[];
 
   @IsNumber()
   @Type(() => Number)
