@@ -8,9 +8,10 @@ import { AuthModule } from './auth/auth.module';
 import { PaymentModule } from './payment/payment.module';
 import { PayoutModule } from './payout/payout.module';
 import { TafiyaWsModule } from '@app/websocket';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
-  imports: [BusesModule, TripsModule, UsersModule, AuthModule, PaymentModule, PayoutModule, TafiyaWsModule],
+  imports: [BusesModule, TripsModule, UsersModule, AuthModule, PaymentModule, PayoutModule, TafiyaWsModule, NotificationsModule],
   controllers: [CompanyController],
   providers: [CompanyService],
 })
