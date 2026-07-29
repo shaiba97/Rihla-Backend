@@ -313,6 +313,118 @@ export class TripsService {
     };
   }
 
+  async getPassengerListData(tripId: string) {
+    const trip = await this.prisma.trip.findUnique({
+      where: { id: tripId },
+      include: { Bus: { select: { name: true, chairs: true, plate: true } } },
+    });
+    if (!trip) throw new NotFoundException('الرحلة غير موجودة');
+
+    const bookings = await this.prisma.booking.findMany({
+      where: { tripId, status: 'CONFIRMED' as any },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return { trip, bookings };
+  }
+
+  renderPassengerListHtml(trip: any, bookings: any[]): string {
+    const rows = bookings
+      .map((b, i) => {
+        const passengers = Array.isArray(b.passenger) ? b.passenger : [];
+        return passengers
+          .map(
+            (p: any, pi: number) => `
+            <tr>
+              <td>${i + 1}${passengers.length > 1 ? `.${pi + 1}` : ''}</td>
+              <td>${p.name || '—'}</td>
+              <td>${p.gender === 'MALE' ? 'ذكر' : p.gender === 'FEMALE' ? 'أنثى' : p.gender || '—'}</td>
+              <td>${p.age ?? '—'}</td>
+              <td>${b.seatNumbers?.join('، ') || '—'}</td>
+            </tr>`
+          )
+          .join('');
+      })
+      .join('');
+
+    const totalPassengers = bookings.reduce(
+      (sum: number, b: any) => sum + (Array.isArray(b.passenger) ? b.passenger.length : 0),
+      0,
+    );
+
+    const plate = trip.Bus?.plate
+      ? typeof trip.Bus.plate === 'object'
+        ? (trip.Bus.plate as any).arabic || JSON.stringify(trip.Bus.plate)
+        : trip.Bus.plate
+      : '—';
+
+    return `<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>كشف الركاب - ${trip.fromCity} → ${trip.toCity}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #f1f5f9; color: #0f172a; padding: 24px; }
+    .card { max-width: 900px; margin: 0 auto; background: #fff; border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
+    .header { background: #4f46e5; color: #fff; padding: 24px; }
+    .header h1 { font-size: 20px; font-weight: 800; margin-bottom: 4px; }
+    .header .sub { font-size: 13px; opacity: .85; }
+    .body { padding: 24px; }
+    .info { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+    .info-item { display: flex; flex-direction: column; gap: 2px; }
+    .info-item .label { font-size: 11px; color: #64748b; font-weight: 600; }
+    .info-item .value { font-size: 14px; font-weight: 700; color: #0f172a; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: #f8fafc; text-align: right; padding: 10px 12px; font-size: 12px; font-weight: 700; color: #475569; border-bottom: 2px solid #e2e8f0; }
+    td { padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
+    tr:hover td { background: #f8fafc; }
+    .footer { padding: 16px 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; display: flex; justify-content: space-between; }
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: #eef2ff; color: #4f46e5; }
+    @media print { body { background: #fff; padding: 0; } .card { box-shadow: none; border-radius: 0; } .header { border-radius: 0; } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <h1>كشف الركاب</h1>
+      <div class="sub">${trip.fromCity} → ${trip.toCity} | ${new Date(trip.departureDate).toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric' })} ${trip.departureTime || ''}</div>
+    </div>
+    <div class="body">
+      <div class="info">
+        <div class="info-item"><span class="label">رقم الرحلة</span><span class="value">${trip.id?.slice(0, 8) || '—'}</span></div>
+        <div class="info-item"><span class="label">الحافلة</span><span class="value">${trip.Bus?.name || '—'}</span></div>
+        <div class="info-item"><span class="label">المسار</span><span class="value">${trip.fromCity} → ${trip.toCity}</span></div>
+        <div class="info-item"><span class="label">المقاعد</span><span class="value">${trip.Bus?.chairs || '—'} مقعد</span></div>
+        <div class="info-item"><span class="label">عدد الركاب</span><span class="value"><span class="badge">${totalPassengers}</span></span></div>
+        <div class="info-item"><span class="label">الحجوزات</span><span class="value"><span class="badge">${bookings.length}</span></span></div>
+        <div class="info-item"><span class="label">رقم اللوحة</span><span class="value">${plate}</span></div>
+        <div class="info-item"><span class="label">تاريخ التقرير</span><span class="value">${new Date().toLocaleDateString('ar-SA', { year: 'numeric', month: 'long', day: 'numeric' })}</span></div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>الاسم</th>
+            <th>الجنس</th>
+            <th>العمر</th>
+            <th>المقعد</th>
+          </tr>
+        </thead>
+        <tbody>${rows || '<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:40px">لا يوجد ركاب مؤكدين</td></tr>'}</tbody>
+      </table>
+    </div>
+    <div class="footer">
+      <span>تم الإنشاء بواسطة منصة تفية</span>
+      <span>Tafiya</span>
+    </div>
+  </div>
+  <script>window.print()</script>
+</body>
+</html>`;
+  }
+
   async generatePassengersPdf(trip: any, bookings: any[]) {
     return this.pdfService.generatePassengerList(trip, bookings);
   }

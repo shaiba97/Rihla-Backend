@@ -10,19 +10,21 @@ import {
   HttpStatus,
   Put,
   Res,
-  // UseGuards,
+  UnauthorizedException,
   Req,
-  // UnauthorizedException,
   HttpException,
 } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import type { Response } from 'express';
-// import { AuthGuard } from '@nestjs/passport';
 import { TripsService } from '../service/trips.service';
 import { CreateTripDto, UpdateTripDto } from '../dto/trips.dto';
 
 @Controller('trips')
 export class TripsController {
-  constructor(private readonly tripsService: TripsService) {}
+  constructor(
+    private readonly tripsService: TripsService,
+    private readonly jwtService: JwtService,
+  ) {}
 
   @Post('post-trip')
   @HttpCode(HttpStatus.CREATED)
@@ -83,6 +85,22 @@ export class TripsController {
   @HttpCode(HttpStatus.OK)
   async remove(@Req() req: any, @Param('id') id: string) {
     return this.tripsService.remove(id);
+  }
+
+  @Get('passenger-list/:tripId')
+  async passengerList(@Param('tripId') tripId: string, @Query('token') token: string, @Res() res: Response) {
+    if (!token) throw new UnauthorizedException('Token is required');
+
+    try {
+      this.jwtService.verify(token);
+    } catch {
+      throw new UnauthorizedException('Invalid or expired token');
+    }
+
+    const { trip, bookings } = await this.tripsService.getPassengerListData(tripId);
+    const html = this.tripsService.renderPassengerListHtml(trip, bookings);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
   }
 
   @Get('download-passengers/:tripId')
