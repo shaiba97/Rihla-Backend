@@ -63,6 +63,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   get payoutRecord() { return this.prisma.payoutRecord; }
   get payoutRecordItem() { return this.prisma.payoutRecordItem; }
   get companyBankAccount() { return this.prisma.companyBankAccount; }
+  get withdrawRequest() { return this.prisma.withdrawRequest; }
 
   async $connect() { return this.prisma.$connect(); }
   async $disconnect() { return this.prisma.$disconnect(); }

@@ -97,6 +97,7 @@ model users {
   CompanyBankAccount CompanyBankAccount?
   PayoutRequest      PayoutRequest[]
   PayoutRecord       PayoutRecord[]
+  WithdrawRequest    WithdrawRequest[]
 
   @@index([email])
 }
@@ -312,6 +313,29 @@ model UserAward {
   Pack      AwardPack   @relation(fields: [packId], references: [id], onDelete: Cascade)
 
   @@unique([userId, packId])
+  @@index([userId])
+  @@index([status])
+}
+
+enum WithdrawStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model WithdrawRequest {
+  id             String         @id @default(uuid())
+  userId         String
+  bankName       String
+  accountHolder  String
+  accountNumber  String
+  amount         Decimal        @db.Decimal(10, 2)
+  status         WithdrawStatus @default(PENDING)
+  receiptFile    String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  User           users          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId])
   @@index([status])
 }

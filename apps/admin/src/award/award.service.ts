@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common'; import { PrismaService, AwardStatus } from '@app/prisma';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common'; import { PrismaService, AwardStatus, WithdrawStatus } from '@app/prisma';
 @Injectable()
 export class AwardService {
   constructor(private readonly prisma: PrismaService) {}
@@ -47,4 +47,35 @@ export class AwardService {
     return { message: 'تم رفض المكافأة' };
   }
   private async findOnePack(id: string) { const p = await this.prisma.awardPack.findUnique({ where: { id } }); if (!p) throw new NotFoundException('حزمة المكافأة غير موجودة'); return p; }
+
+  async getPendingWithdrawals() {
+    return this.prisma.withdrawRequest.findMany({
+      where: { status: 'PENDING' as WithdrawStatus },
+      include: { User: { select: { id: true, name: true, phone: true, email: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getWithdrawalHistory() {
+    return this.prisma.withdrawRequest.findMany({
+      include: { User: { select: { id: true, name: true, phone: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async approveWithdrawal(id: string, receiptFile?: string) {
+    const wr = await this.prisma.withdrawRequest.findUnique({ where: { id } });
+    if (!wr) throw new NotFoundException('طلب السحب غير موجود');
+    if (wr.status !== 'PENDING') throw new BadRequestException('يمكن قبول الطلبات المعلقة فقط');
+    const data: any = { status: 'APPROVED' as WithdrawStatus };
+    if (receiptFile) data.receiptFile = receiptFile;
+    return this.prisma.withdrawRequest.update({ where: { id }, data });
+  }
+
+  async rejectWithdrawal(id: string) {
+    const wr = await this.prisma.withdrawRequest.findUnique({ where: { id } });
+    if (!wr) throw new NotFoundException('طلب السحب غير موجود');
+    if (wr.status !== 'PENDING') throw new BadRequestException('يمكن رفض الطلبات المعلقة فقط');
+    return this.prisma.withdrawRequest.update({ where: { id }, data: { status: 'REJECTED' as WithdrawStatus } });
+  }
 }

@@ -74,4 +74,53 @@ export class AwardsService {
 
     return { pack, awards, totalBookings };
   }
+
+  async getTotalEarnings(userId: string) {
+    const approved = await this.prisma.userAward.findMany({
+      where: { userId, status: 'APPROVED' },
+      include: { Pack: true },
+    });
+    const total = approved.reduce((sum, a) => sum + Number(a.Pack.awardValue), 0);
+    const withdrawn = await this.prisma.withdrawRequest.aggregate({
+      where: { userId, status: 'APPROVED' },
+      _sum: { amount: true },
+    });
+    return {
+      totalEarnings: total,
+      withdrawn: Number(withdrawn._sum.amount ?? 0),
+      available: total - Number(withdrawn._sum.amount ?? 0),
+    };
+  }
+
+  async createWithdrawRequest(
+    userId: string,
+    data: { bankName: string; accountHolder: string; accountNumber: string },
+  ) {
+    const earnings = await this.getTotalEarnings(userId);
+    if (earnings.available <= 0) {
+      throw new BadRequestException('لا يوجد رصيد متاح للسحب');
+    }
+    const pending = await this.prisma.withdrawRequest.findFirst({
+      where: { userId, status: 'PENDING' },
+    });
+    if (pending) {
+      throw new BadRequestException('لديك طلب سحب معلق بالفعل');
+    }
+    return this.prisma.withdrawRequest.create({
+      data: {
+        userId,
+        bankName: data.bankName,
+        accountHolder: data.accountHolder,
+        accountNumber: data.accountNumber,
+        amount: earnings.available,
+      },
+    });
+  }
+
+  async getWithdrawals(userId: string) {
+    return this.prisma.withdrawRequest.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
 }
