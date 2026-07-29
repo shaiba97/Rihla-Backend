@@ -1,10 +1,16 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@app/prisma';
+import { TafiyaWsGateway, WS_EVENTS } from '@app/websocket';
+import { NotificationsService } from '../../notifications/notifications.service';
 
 @Injectable()
 export class PayoutService {
   private readonly logger = new Logger(PayoutService.name);
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ws: TafiyaWsGateway,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   async getDashboardStats(companyId: string) {
     const trips = await this.prisma.trip.findMany({
@@ -134,6 +140,31 @@ export class PayoutService {
 
     if (requests.length === 0) {
       throw new BadRequestException('لا توجد مبالغ جديدة للصرف');
+    }
+
+    // Notify all admin users about the payout request
+    try {
+      const admins = await this.prisma.users.findMany({
+        where: { role: 'ADMIN' as any, isActive: true },
+        select: { id: true },
+      });
+      const totalAmount = requests.reduce((s, r) => s + Number(r.amount), 0);
+
+      for (const admin of admins) {
+        await this.notifications.create({
+          userId: admin.id,
+          type: 'PAYOUT_REQUEST',
+          title: 'طلب صرف جديد',
+          body: `تم تقديم طلب صرف جديد بمبلغ ${totalAmount} جنيه`,
+          data: {
+            requestIds: requests.map(r => r.id),
+            totalAmount,
+          },
+          emitTo: `admin`,
+        });
+      }
+    } catch (e) {
+      this.logger.warn('Failed to notify admins (non-blocking): ' + (e as Error).message);
     }
 
     return {

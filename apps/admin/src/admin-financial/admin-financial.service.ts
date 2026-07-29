@@ -367,6 +367,134 @@ export class AdminFinancialService {
     return { message: 'تم رفض الدفعة وإلغاء الحجز' };
   }
 
+  async getPayoutRequests() {
+    const requests = await this.prisma.payoutRequest.findMany({
+      where: { status: 'PENDING' },
+      include: {
+        Company: { select: { id: true, name: true } },
+        Trip: { select: { id: true, fromCity: true, toCity: true, departureDate: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return requests.map(r => ({
+      id: r.id,
+      companyId: r.companyId,
+      companyName: r.Company?.name ?? '—',
+      tripId: r.tripId,
+      tripRoute: r.Trip ? `${r.Trip.fromCity} → ${r.Trip.toCity}` : null,
+      tripDate: r.Trip?.departureDate,
+      amount: Math.round(Number(r.amount)),
+      note: r.note,
+      createdAt: r.createdAt,
+    }));
+  }
+
+  async approvePayout(requestId: string, note?: string) {
+    const request = await this.prisma.payoutRequest.findUnique({
+      where: { id: requestId },
+      include: { Trip: { select: { id: true, fromCity: true, toCity: true } } },
+    });
+    if (!request) throw new NotFoundException('طلب الصرف غير موجود');
+    if (request.status !== 'PENDING') throw new BadRequestException('يمكن الموافقة على الطلبات المعلقة فقط');
+
+    await this.prisma.$transaction(async (tx: any) => {
+      await tx.payoutRequest.update({
+        where: { id: requestId },
+        data: { status: 'APPROVED', note: note || null },
+      });
+
+      let record = await tx.payoutRecord.findFirst({
+        where: { companyId: request.companyId },
+      });
+
+      if (!record) {
+        record = await tx.payoutRecord.create({
+          data: {
+            companyId: request.companyId,
+            amount: request.amount,
+            note: note || null,
+          },
+        });
+      } else {
+        await tx.payoutRecord.update({
+          where: { id: record.id },
+          data: {
+            amount: { increment: request.amount },
+            note: note || null,
+          },
+        });
+      }
+
+      if (request.tripId) {
+        await tx.payoutRecordItem.create({
+          data: {
+            payoutRecordId: record.id,
+            tripId: request.tripId,
+          },
+        });
+      }
+    });
+
+    this.wsGateway.emitToCompany(request.companyId, WS_EVENTS.NOTIFICATION_NEW, {
+      type: 'PAYOUT_REQUEST',
+      title: 'تمت الموافقة على طلب الصرف',
+      body: note
+        ? `تمت الموافقة على طلب الصرف بمبلغ ${Math.round(Number(request.amount))} جنيه. ملاحظة: ${note}`
+        : `تمت الموافقة على طلب الصرف بمبلغ ${Math.round(Number(request.amount))} جنيه`,
+      data: { requestId, status: 'APPROVED' },
+    });
+
+    await this.notifications.create({
+      userId: request.companyId,
+      type: 'PAYOUT_REQUEST',
+      title: 'تمت الموافقة على طلب الصرف',
+      body: note
+        ? `تمت الموافقة على طلب الصرف بمبلغ ${Math.round(Number(request.amount))} جنيه. ملاحظة: ${note}`
+        : `تمت الموافقة على طلب الصرف بمبلغ ${Math.round(Number(request.amount))} جنيه`,
+      data: { requestId, status: 'APPROVED' },
+      emitTo: `company:${request.companyId}`,
+    });
+
+    this.wsGateway.emitPublic(WS_EVENTS.STATS_UPDATED, {});
+
+    return { message: 'تمت الموافقة على طلب الصرف بنجاح' };
+  }
+
+  async rejectPayout(requestId: string, reason?: string) {
+    const request = await this.prisma.payoutRequest.findUnique({
+      where: { id: requestId },
+    });
+    if (!request) throw new NotFoundException('طلب الصرف غير موجود');
+    if (request.status !== 'PENDING') throw new BadRequestException('يمكن رفض الطلبات المعلقة فقط');
+
+    await this.prisma.payoutRequest.update({
+      where: { id: requestId },
+      data: { status: 'REJECTED', note: reason || null },
+    });
+
+    this.wsGateway.emitToCompany(request.companyId, WS_EVENTS.NOTIFICATION_NEW, {
+      type: 'PAYOUT_REQUEST',
+      title: 'تم رفض طلب الصرف',
+      body: reason
+        ? `تم رفض طلب الصرف الخاص بك. السبب: ${reason}`
+        : 'تم رفض طلب الصرف الخاص بك',
+      data: { requestId, status: 'REJECTED', reason },
+    });
+
+    await this.notifications.create({
+      userId: request.companyId,
+      type: 'PAYOUT_REQUEST',
+      title: 'تم رفض طلب الصرف',
+      body: reason
+        ? `تم رفض طلب الصرف الخاص بك. السبب: ${reason}`
+        : 'تم رفض طلب الصرف الخاص بك',
+      data: { requestId, status: 'REJECTED', reason },
+      emitTo: `company:${request.companyId}`,
+    });
+
+    return { message: 'تم رفض طلب الصرف' };
+  }
+
   async getEarnings(period: Period = 'monthly') {
     const [payments, activeFee] = await Promise.all([
       this.prisma.payment.findMany({

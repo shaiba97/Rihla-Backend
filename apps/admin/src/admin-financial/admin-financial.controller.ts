@@ -27,4 +27,13 @@ export class AdminFinancialController {
 
   @Post('reject/:id')
   rejectPayment(@Param('id') id: string, @Body() body: { reason?: string }) { return this.svc.rejectPayment(id, body?.reason); }
+
+  @Get('payout-requests')
+  getPayoutRequests() { return this.svc.getPayoutRequests(); }
+
+  @Post('payout-approve/:id')
+  approvePayout(@Param('id') id: string, @Body() body: { note?: string }) { return this.svc.approvePayout(id, body?.note); }
+
+  @Post('payout-reject/:id')
+  rejectPayout(@Param('id') id: string, @Body() body: { reason?: string }) { return this.svc.rejectPayout(id, body?.reason); }
 }
