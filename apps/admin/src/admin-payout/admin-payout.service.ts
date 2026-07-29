@@ -2,8 +2,6 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { PrismaService } from '@app/prisma';
 import { TafiyaWsGateway, WS_EVENTS } from '@app/websocket';
 import { NotificationsService } from '../notifications/notifications.service';
-import * as path from 'path';
-import * as fs from 'fs';
 
 @Injectable()
 export class AdminPayoutService {
@@ -89,7 +87,7 @@ export class AdminPayoutService {
     };
   }
 
-  async payTrip(tripId: string, file?: Express.Multer.File) {
+  async payTrip(tripId: string, receiptFile?: string) {
     const trip = await this.prisma.trip.findUnique({
       where: { id: tripId },
       include: {
@@ -108,15 +106,6 @@ export class AdminPayoutService {
     if (totalAmount <= 0) throw new BadRequestException('لا توجد مستحقات لهذه الرحلة');
 
     const companyId = trip.Bus.companyId;
-    let receiptFile: string | null = null;
-    if (file) {
-      const uploadDir = path.join(process.cwd(), 'uploads', 'payouts');
-      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-      const filename = `payout_${tripId}_${Date.now()}${path.extname(file.originalname)}`;
-      const filepath = path.join(uploadDir, filename);
-      fs.writeFileSync(filepath, file.buffer);
-      receiptFile = `/uploads/payouts/${filename}`;
-    }
 
     const result = await this.prisma.$transaction(async (tx: any) => {
       let record = await tx.payoutRecord.findFirst({ where: { companyId } });
@@ -153,7 +142,7 @@ export class AdminPayoutService {
     return { message: 'تم صرف الرحلة بنجاح', data: result };
   }
 
-  async payAll(companyId: string, file?: Express.Multer.File) {
+  async payAll(companyId: string, receiptFile?: string) {
     const unpaidTrips = await this.prisma.trip.findMany({
       where: { Bus: { companyId } },
       include: {
@@ -170,16 +159,6 @@ export class AdminPayoutService {
       for (const b of trip.Booking) {
         totalAmount += Number(b.Payment?.companyAmount ?? 0);
       }
-    }
-
-    let receiptFile: string | null = null;
-    if (file) {
-      const uploadDir = path.join(process.cwd(), 'uploads', 'payouts');
-      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-      const filename = `payout_all_${companyId}_${Date.now()}${path.extname(file.originalname)}`;
-      const filepath = path.join(uploadDir, filename);
-      fs.writeFileSync(filepath, file.buffer);
-      receiptFile = `/uploads/payouts/${filename}`;
     }
 
     const result = await this.prisma.$transaction(async (tx: any) => {
@@ -256,23 +235,13 @@ export class AdminPayoutService {
     };
   }
 
-  async approveRequest(requestId: string, file?: Express.Multer.File) {
+  async approveRequest(requestId: string, receiptFile?: string) {
     const request = await this.prisma.payoutRequest.findUnique({
       where: { id: requestId },
       include: { Trip: { select: { id: true, fromCity: true, toCity: true } } },
     });
     if (!request) throw new NotFoundException('طلب الصرف غير موجود');
     if (request.status !== 'PENDING') throw new BadRequestException('يمكن قبول الطلبات المعلقة فقط');
-
-    let receiptFile: string | null = null;
-    if (file) {
-      const uploadDir = path.join(process.cwd(), 'uploads', 'payouts');
-      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-      const filename = `payout_req_${requestId}_${Date.now()}${path.extname(file.originalname)}`;
-      const filepath = path.join(uploadDir, filename);
-      fs.writeFileSync(filepath, file.buffer);
-      receiptFile = `/uploads/payouts/${filename}`;
-    }
 
     await this.prisma.$transaction(async (tx: any) => {
       await tx.payoutRequest.update({
