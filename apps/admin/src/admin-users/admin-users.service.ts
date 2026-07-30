@@ -45,10 +45,37 @@ export class AdminUsersService {
       }),
       this.prisma.users.count({ where }),
     ]);
-    const users = raw.map((u: any) => ({
+    let users: any[] = raw.map((u: any) => ({
       ...u,
       _count: { Booking: u.Booking?.length ?? 0, Bus: u.Bus?.length ?? 0 },
     }));
+    if (params.role === 'COMPANY') {
+      const companyIds = users.map((u: any) => u.id);
+      const payments = await this.prisma.payment.findMany({
+        where: {
+          status: 'SUCCESS',
+          Booking: {
+            status: 'CONFIRMED',
+            Trip: { Bus: { companyId: { in: companyIds } } },
+          },
+        },
+        select: {
+          companyAmount: true,
+          Booking: {
+            select: { Trip: { select: { Bus: { select: { companyId: true } } } } },
+          },
+        },
+      });
+      const profitsMap = new Map<string, number>();
+      for (const p of payments) {
+        const cid = (p as any).Booking.Trip.Bus.companyId;
+        const amount = Number(p.companyAmount ?? 0);
+        profitsMap.set(cid, (profitsMap.get(cid) ?? 0) + amount);
+      }
+      users = users.map((u: any) => ({ ...u, profits: profitsMap.get(u.id) ?? 0 }));
+    } else {
+      users = users.map((u: any) => ({ ...u, profits: null }));
+    }
     return { users, total, page, pages: Math.ceil(total / limit) };
   }
   async findOne(id: string) {
