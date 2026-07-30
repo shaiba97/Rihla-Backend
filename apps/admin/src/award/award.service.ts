@@ -20,7 +20,18 @@ export class AwardService {
     const totalValue = awards
       .filter(a => a.status === 'APPROVED')
       .reduce((sum, a) => sum + Number(a.Pack.awardValue), 0);
-    return { awards, totalValue, count: awards.length, approvedCount: awards.filter(a => a.status === 'APPROVED').length };
+    const approvedWithdrawals = await this.prisma.withdrawRequest.findMany({
+      where: { userId, status: 'APPROVED' },
+    });
+    const withdrawn = approvedWithdrawals.reduce((s, w) => s + Number(w.amount), 0);
+    return {
+      awards,
+      totalValue,
+      count: awards.length,
+      approvedCount: awards.filter(a => a.status === 'APPROVED').length,
+      withdrawn,
+      available: totalValue - withdrawn,
+    };
   }
   async getPending() {
     return this.prisma.userAward.findMany({

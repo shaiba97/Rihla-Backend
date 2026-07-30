@@ -94,7 +94,7 @@ export class AdminUsersService {
     return { users, total, page, pages: Math.ceil(total / limit) };
   }
   async findOne(id: string) {
-    const user = await this.prisma.users.findUnique({
+    const raw = await this.prisma.users.findUnique({
       where: { id },
       include: {
         Booking: {
@@ -102,12 +102,14 @@ export class AdminUsersService {
           orderBy: { createdAt: 'desc' },
         },
         Bus: { include: { Trip: { include: { Bus: true } } } },
+        WithdrawRequest: { orderBy: { createdAt: 'desc' } },
       },
-    });
-    if (!user) throw new NotFoundException('المستخدم غير موجود');
+    }) as any;
+    if (!raw) throw new NotFoundException('المستخدم غير موجود');
+    const confirmedBookings = raw.Booking.filter((b: any) => b.status === 'CONFIRMED');
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { password, refreshToken, ...safe } = user;
-    return safe;
+    const { password, refreshToken, ...safe } = raw;
+    return { ...safe, _confirmedBookings: confirmedBookings.length };
   }
   async toggleActive(id: string) {
     const user = await this.prisma.users.findUnique({ where: { id } });
