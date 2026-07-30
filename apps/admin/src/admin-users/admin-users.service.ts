@@ -102,7 +102,6 @@ export class AdminUsersService {
           orderBy: { createdAt: 'desc' },
         },
         Bus: { include: { Trip: { include: { Bus: true } } } },
-        WithdrawRequest: { orderBy: { createdAt: 'desc' } },
       },
     }) as any;
     if (!raw) throw new NotFoundException('المستخدم غير موجود');

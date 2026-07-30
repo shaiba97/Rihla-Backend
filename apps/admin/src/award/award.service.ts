@@ -20,10 +20,15 @@ export class AwardService {
     const totalValue = awards
       .filter(a => a.status === 'APPROVED')
       .reduce((sum, a) => sum + Number(a.Pack.awardValue), 0);
-    const approvedWithdrawals = await this.prisma.withdrawRequest.findMany({
-      where: { userId, status: 'APPROVED' },
-    });
-    const withdrawn = approvedWithdrawals.reduce((s, w) => s + Number(w.amount), 0);
+    let withdrawn = 0;
+    try {
+      const approvedWithdrawals = await this.prisma.withdrawRequest.findMany({
+        where: { userId, status: 'APPROVED' },
+      });
+      withdrawn = approvedWithdrawals.reduce((s, w) => s + Number(w.amount), 0);
+    } catch {
+      // withdraw_request table may not exist yet (migration pending)
+    }
     return {
       awards,
       totalValue,
