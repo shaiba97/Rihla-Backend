@@ -109,26 +109,34 @@ export class AdminUsersService {
     const confirmedBookings = raw.Booking.filter((b: any) => b.status === 'CONFIRMED');
 
     let totalProfits = 0;
-    const tripProfitsMap = new Map<string, { profit: number; platformFee: number }>();
-    for (const b of confirmedBookings) {
-      const p = b.Payment;
-      if (p?.status === 'SUCCESS') {
-        const profit = Number(p.companyAmount ?? 0);
-        const fee = Number(p.platformFeeAmount ?? 0);
-        totalProfits += profit;
-        const tid = b.tripId;
-        const existing = tripProfitsMap.get(tid) ?? { profit: 0, platformFee: 0 };
-        existing.profit += profit;
-        existing.platformFee += fee;
-        tripProfitsMap.set(tid, existing);
-      }
-    }
-
     let totalPaidOut = 0;
-    try {
-      const payouts = await this.prisma.payoutRecord.findMany({ where: { companyId: id } });
-      totalPaidOut = payouts.reduce((s: number, p: any) => s + Number(p.amount), 0);
-    } catch {}
+    const tripProfitsMap = new Map<string, { profit: number; platformFee: number }>();
+
+    const allTripIds = (raw.Bus ?? []).flatMap((bus: any) => (bus.Trip ?? []).map((t: any) => t.id));
+    if (allTripIds.length > 0) {
+      const bookings = await this.prisma.booking.findMany({
+        where: { tripId: { in: allTripIds }, status: 'CONFIRMED' },
+        include: { Payment: true },
+      });
+      for (const b of bookings) {
+        const p = b.Payment;
+        if (p?.status === 'SUCCESS') {
+          const profit = Number(p.companyAmount ?? 0);
+          const fee = Number(p.platformFeeAmount ?? 0);
+          totalProfits += profit;
+          const tid = b.tripId;
+          const existing = tripProfitsMap.get(tid) ?? { profit: 0, platformFee: 0 };
+          existing.profit += profit;
+          existing.platformFee += fee;
+          tripProfitsMap.set(tid, existing);
+        }
+      }
+
+      try {
+        const payouts = await this.prisma.payoutRecord.findMany({ where: { companyId: id } });
+        totalPaidOut = payouts.reduce((s: number, p: any) => s + Number(p.amount), 0);
+      } catch {}
+    }
 
     const buses = (raw.Bus ?? []).map((bus: any) => ({
       ...bus,
