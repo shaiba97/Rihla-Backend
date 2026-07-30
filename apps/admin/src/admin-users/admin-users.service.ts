@@ -45,18 +45,33 @@ export class AdminUsersService {
       }),
       this.prisma.users.count({ where }),
     ]);
+    const userIds = raw.map((u: any) => u.id);
     let users: any[] = raw.map((u: any) => ({
       ...u,
       _count: { Booking: u.Booking?.length ?? 0, Bus: u.Bus?.length ?? 0 },
     }));
+
+    const userAwards = await this.prisma.userAward.findMany({
+      where: { userId: { in: userIds }, status: 'APPROVED' },
+      select: {
+        userId: true,
+        Pack: { select: { awardValue: true } },
+      },
+    });
+    const awardsMap = new Map<string, number>();
+    for (const a of userAwards) {
+      const val = Number(a.Pack?.awardValue ?? 0);
+      awardsMap.set(a.userId, (awardsMap.get(a.userId) ?? 0) + val);
+    }
+    users = users.map((u: any) => ({ ...u, awards: awardsMap.get(u.id) ?? 0 }));
+
     if (params.role === 'COMPANY') {
-      const companyIds = users.map((u: any) => u.id);
       const payments = await this.prisma.payment.findMany({
         where: {
           status: 'SUCCESS',
           Booking: {
             status: 'CONFIRMED',
-            Trip: { Bus: { companyId: { in: companyIds } } },
+            Trip: { Bus: { companyId: { in: userIds } } },
           },
         },
         select: {
