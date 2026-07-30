@@ -108,7 +108,7 @@ export class AdminFinancialService {
       totalBookings, confirmedBookings, pendingBookings, cancelledBookings, bookingsToday, bookingsThisMonth,
       totalTrips, scheduledTrips, totalBuses,
       allPayments, pendingPaymentsCount,
-      activeFee, totalPaymentAccounts, activePaymentAccounts,
+      totalPaymentAccounts, activePaymentAccounts,
     ] = await Promise.all([
       this.prisma.users.count(),
       this.prisma.users.count({ where: { role: 'COMPANY' as any } }),
@@ -130,21 +130,18 @@ export class AdminFinancialService {
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.payment.count({ where: { status: 'PENDING' as any } }),
-      this.prisma.platformFee.findFirst({ where: { isActive: true }, orderBy: { createdAt: 'desc' } }),
       this.prisma.paymentAccount.count(),
       this.prisma.paymentAccount.count({ where: { isActive: true } }),
     ]);
 
-    const feePct = activeFee ? Number(activeFee.percentage) : 0;
-
     const totalRevenue = allPayments.reduce((s: number, p: DashboardPaymentSummary) => s + Number(p.totalAmount), 0);
-    const totalPlatformEarnings = allPayments.reduce((s: number, p: DashboardPaymentSummary) => s + Math.round(Number(p.totalAmount) * feePct) / 100, 0);
-    const totalCompanyAmount = allPayments.reduce((s: number, p: DashboardPaymentSummary) => s + (Number(p.totalAmount) - Math.round(Number(p.totalAmount) * feePct) / 100), 0);
+    const totalPlatformEarnings = allPayments.reduce((s: number, p: DashboardPaymentSummary) => s + Number(p.platformFeeAmount ?? 0), 0);
+    const totalCompanyAmount = allPayments.reduce((s: number, p: DashboardPaymentSummary) => s + Number(p.companyAmount), 0);
     const revenueThisMonth = allPayments.filter((p: DashboardPaymentSummary) => new Date(p.createdAt) >= startOfMonth).reduce((s: number, p: DashboardPaymentSummary) => s + Number(p.totalAmount), 0);
 
     const dailyRevenueMap: Record<string, { revenue: number; earnings: number; bookings: number }> = {};
     for (let i = 29; i >= 0; i--) { const d = new Date(now); d.setDate(d.getDate() - i); dailyRevenueMap[d.toISOString().slice(0, 10)] = { revenue: 0, earnings: 0, bookings: 0 }; }
-    allPayments.filter((p: DashboardPaymentSummary) => new Date(p.createdAt) >= last30).forEach((p: DashboardPaymentSummary) => { const key = new Date(p.createdAt).toISOString().slice(0, 10); if (dailyRevenueMap[key]) { dailyRevenueMap[key].revenue += Number(p.totalAmount); dailyRevenueMap[key].earnings += Math.round(Number(p.totalAmount) * feePct) / 100; dailyRevenueMap[key].bookings += 1; } });
+    allPayments.filter((p: DashboardPaymentSummary) => new Date(p.createdAt) >= last30).forEach((p: DashboardPaymentSummary) => { const key = new Date(p.createdAt).toISOString().slice(0, 10); if (dailyRevenueMap[key]) { dailyRevenueMap[key].revenue += Number(p.totalAmount); dailyRevenueMap[key].earnings += Number(p.platformFeeAmount ?? 0); dailyRevenueMap[key].bookings += 1; } });
     const dailyRevenue = Object.entries(dailyRevenueMap).map(([date, data]: [string, { revenue: number; earnings: number; bookings: number }]) => ({ date, ...data }));
 
     const methodMap: Record<string, number> = {};
@@ -166,6 +163,8 @@ export class AdminFinancialService {
         include: { Booking: { include: { Trip: { select: { fromCity: true, toCity: true } }, Customer: { select: { name: true } } } } },
       }),
     ]);
+
+    const activeFee = await this.prisma.platformFee.findFirst({ where: { isActive: true }, orderBy: { createdAt: 'desc' } });
 
     return {
       platform: { activePlatformFee: activeFee ? { id: activeFee.id, percentage: Number(activeFee.percentage), label: activeFee.label ?? null, isActive: activeFee.isActive } : null, pendingPaymentsRequiringAction: pendingPaymentsCount, totalPaymentAccounts, activePaymentAccounts },
@@ -193,19 +192,17 @@ export class AdminFinancialService {
       this.prisma.expense.aggregate({ _sum: { amount: true } }),
     ]);
 
-    const feePct = activeFee ? Number(activeFee.percentage) : 0;
-
     const successPayments = allPayments.filter((p: FullPaymentBooking) => p.status === 'SUCCESS');
     const totalRevenue = successPayments.reduce((s: number, p: FullPaymentBooking) => s + Number(p.totalAmount ?? 0), 0);
-    const totalPlatformEarnings = successPayments.reduce((s: number, p: FullPaymentBooking) => s + Math.round(Number(p.totalAmount ?? 0) * feePct) / 100, 0);
-    const totalCompanyAmount = successPayments.reduce((s: number, p: FullPaymentBooking) => s + (Number(p.totalAmount ?? 0) - Math.round(Number(p.totalAmount ?? 0) * feePct) / 100), 0);
+    const totalPlatformEarnings = successPayments.reduce((s: number, p: FullPaymentBooking) => s + Number(p.platformFeeAmount ?? 0), 0);
+    const totalCompanyAmount = successPayments.reduce((s: number, p: FullPaymentBooking) => s + Number(p.companyAmount ?? 0), 0);
 
     const monthlyMap: Record<string, { revenue: number; earnings: number; count: number }> = {};
     successPayments.forEach((p: FullPaymentBooking) => {
       const key = new Date(p.createdAt).toISOString().slice(0, 7);
       if (!monthlyMap[key]) monthlyMap[key] = { revenue: 0, earnings: 0, count: 0 };
       monthlyMap[key].revenue += Number(p.totalAmount ?? 0);
-      monthlyMap[key].earnings += Math.round(Number(p.totalAmount ?? 0) * feePct) / 100;
+      monthlyMap[key].earnings += Number(p.platformFeeAmount ?? 0);
       monthlyMap[key].count += 1;
     });
     const monthlyBreakdown = Object.entries(monthlyMap).map(([month, d]: [string, { revenue: number; earnings: number; count: number }]) => ({ month, ...d })).sort((a: { month: string; revenue: number; earnings: number; count: number }, b: { month: string; revenue: number; earnings: number; count: number }) => a.month.localeCompare(b.month)).slice(-12);
@@ -368,21 +365,17 @@ export class AdminFinancialService {
   }
 
   async getEarnings(period: Period = 'monthly') {
-    const [payments, activeFee] = await Promise.all([
-      this.prisma.payment.findMany({
-        where: { status: 'SUCCESS' },
-        include: {
-          Booking: {
-            include: {
-              Trip: { include: { Bus: { include: { Company: { select: { id: true, name: true } } } } } },
-            },
+    const payments = await this.prisma.payment.findMany({
+      where: { status: 'SUCCESS' },
+      include: {
+        Booking: {
+          include: {
+            Trip: { include: { Bus: { include: { Company: { select: { id: true, name: true } } } } } },
           },
         },
-        orderBy: { createdAt: 'asc' },
-      }),
-      this.prisma.platformFee.findFirst({ where: { isActive: true }, orderBy: { createdAt: 'desc' } }),
-    ]);
-    const feePct = activeFee ? Number(activeFee.percentage) : 0;
+      },
+      orderBy: { createdAt: 'asc' },
+    });
 
     function getKey(d: Date): string {
       const y = d.getFullYear();
@@ -406,8 +399,8 @@ export class AdminFinancialService {
       const key = getKey(new Date(p.createdAt));
       if (!groups[key]) groups[key] = { revenue: 0, platformEarnings: 0, companyAmount: 0, count: 0, companies: {} };
       const totalRev = Number(p.totalAmount ?? 0);
-      const platEarn = Math.round(totalRev * feePct) / 100;
-      const compAmt = totalRev - platEarn;
+      const platEarn = Number(p.platformFeeAmount ?? 0);
+      const compAmt = Number(p.companyAmount ?? 0);
       groups[key].revenue += totalRev;
       groups[key].platformEarnings += platEarn;
       groups[key].companyAmount += compAmt;
@@ -435,7 +428,7 @@ export class AdminFinancialService {
   }
 
   async getPerformance(period: Period = 'monthly') {
-    const [payments, allExpenses, activeFee] = await Promise.all([
+    const [payments, allExpenses] = await Promise.all([
       this.prisma.payment.findMany({
         where: { status: 'SUCCESS' },
         include: {
@@ -448,9 +441,7 @@ export class AdminFinancialService {
         orderBy: { createdAt: 'asc' },
       }),
       this.prisma.expense.findMany({ orderBy: { createdAt: 'asc' } }),
-      this.prisma.platformFee.findFirst({ where: { isActive: true }, orderBy: { createdAt: 'desc' } }),
     ]);
-    const feePct = activeFee ? Number(activeFee.percentage) : 0;
 
     function getKey(d: Date): string {
       const y = d.getFullYear();
@@ -479,8 +470,8 @@ export class AdminFinancialService {
       const key = getKey(new Date(p.createdAt));
       if (!groups[key]) groups[key] = { platformRevenue: 0, platformExpenses: 0, count: 0, companies: {} };
       const totalRev = Number(p.totalAmount ?? 0);
-      const platRev = Math.round(totalRev * feePct) / 100;
-      const compInc = totalRev - platRev;
+      const platRev = Number(p.platformFeeAmount ?? 0);
+      const compInc = Number(p.companyAmount ?? 0);
       groups[key].platformRevenue += platRev;
       groups[key].count += 1;
 
