@@ -102,13 +102,53 @@ export class AdminUsersService {
           orderBy: { createdAt: 'desc' },
         },
         Bus: { include: { Trip: { include: { Bus: true } } } },
+        CompanyBankAccount: true,
       },
     }) as any;
     if (!raw) throw new NotFoundException('المستخدم غير موجود');
     const confirmedBookings = raw.Booking.filter((b: any) => b.status === 'CONFIRMED');
+
+    let totalProfits = 0;
+    const tripProfitsMap = new Map<string, { profit: number; platformFee: number }>();
+    for (const b of confirmedBookings) {
+      const p = b.Payment;
+      if (p?.status === 'SUCCESS') {
+        const profit = Number(p.companyAmount ?? 0);
+        const fee = Number(p.platformFeeAmount ?? 0);
+        totalProfits += profit;
+        const tid = b.tripId;
+        const existing = tripProfitsMap.get(tid) ?? { profit: 0, platformFee: 0 };
+        existing.profit += profit;
+        existing.platformFee += fee;
+        tripProfitsMap.set(tid, existing);
+      }
+    }
+
+    let totalPaidOut = 0;
+    try {
+      const payouts = await this.prisma.payoutRecord.findMany({ where: { companyId: id } });
+      totalPaidOut = payouts.reduce((s: number, p: any) => s + Number(p.amount), 0);
+    } catch {}
+
+    const buses = (raw.Bus ?? []).map((bus: any) => ({
+      ...bus,
+      Trip: (bus.Trip ?? []).map((t: any) => ({
+        ...t,
+        _profit: tripProfitsMap.get(t.id)?.profit ?? 0,
+        _platformFee: tripProfitsMap.get(t.id)?.platformFee ?? 0,
+      })),
+    }));
+
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { password, refreshToken, ...safe } = raw;
-    return { ...safe, _confirmedBookings: confirmedBookings.length };
+    return {
+      ...safe,
+      Bus: buses,
+      _confirmedBookings: confirmedBookings.length,
+      _totalProfits: totalProfits,
+      _totalPaidOut: totalPaidOut,
+      _remainingProfits: totalProfits - totalPaidOut,
+    };
   }
   async toggleActive(id: string) {
     const user = await this.prisma.users.findUnique({ where: { id } });
