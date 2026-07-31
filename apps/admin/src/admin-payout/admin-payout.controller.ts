@@ -6,7 +6,7 @@ import * as path from 'path';
 import { AdminPayoutService } from './admin-payout.service';
 
 const payoutStorage = diskStorage({
-  destination: './uploads/payouts',
+  destination: path.join(__dirname, '../../../uploads/payouts'),
   filename: (_req: any, file: Express.Multer.File, cb: (err: Error | null, name: string) => void) => {
     const ext = path.extname(file.originalname).toLowerCase();
     const name = `payout_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`;
