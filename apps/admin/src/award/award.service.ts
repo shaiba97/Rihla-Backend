@@ -45,22 +45,33 @@ export class AwardService {
       orderBy: { createdAt: 'desc' },
     });
   }
-  async approve(id: string) {
+  async approve(id: string, receiptFile?: string) {
     const ua = await this.prisma.userAward.findUnique({ where: { id }, include: { Pack: true } });
     if (!ua) throw new NotFoundException('المكافأة غير موجودة');
     if (ua.status !== 'PENDING') throw new BadRequestException('يمكن قبول المكافآت المعلقة فقط');
+    const data: any = { status: 'APPROVED' };
+    if (receiptFile) data.receiptFile = receiptFile;
     await this.prisma.$transaction(async (tx: any) => {
-      await tx.userAward.update({ where: { id }, data: { status: 'APPROVED' } });
+      await tx.userAward.update({ where: { id }, data });
       await tx.expense.create({ data: { amount: ua.Pack.awardValue, reason: `مكافأة: ${ua.Pack.title}` } });
     });
     return { message: 'تم قبول المكافأة وتسجيل المصروف' };
   }
-  async reject(id: string) {
+  async reject(id: string, rejectReason?: string) {
     const ua = await this.prisma.userAward.findUnique({ where: { id } });
     if (!ua) throw new NotFoundException('المكافأة غير موجودة');
     if (ua.status !== 'PENDING') throw new BadRequestException('يمكن رفض المكافآت المعلقة فقط');
-    await this.prisma.userAward.update({ where: { id }, data: { status: 'REJECTED' } });
+    const data: any = { status: 'REJECTED' };
+    if (rejectReason) data.rejectReason = rejectReason;
+    await this.prisma.userAward.update({ where: { id }, data });
     return { message: 'تم رفض المكافأة' };
+  }
+  async getHistory() {
+    return this.prisma.userAward.findMany({
+      where: { status: { in: ['APPROVED', 'REJECTED'] } },
+      include: { Pack: true },
+      orderBy: { updatedAt: 'desc' },
+    });
   }
   private async findOnePack(id: string) { const p = await this.prisma.awardPack.findUnique({ where: { id } }); if (!p) throw new NotFoundException('حزمة المكافأة غير موجودة'); return p; }
 

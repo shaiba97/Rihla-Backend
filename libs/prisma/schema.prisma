@@ -304,13 +304,15 @@ model AwardPack {
 }
 
 model UserAward {
-  id        String      @id @default(uuid())
-  userId    String
-  packId    String
-  status    AwardStatus @default(PENDING)
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  Pack      AwardPack   @relation(fields: [packId], references: [id], onDelete: Cascade)
+  id           String      @id @default(uuid())
+  userId       String
+  packId       String
+  status       AwardStatus @default(PENDING)
+  receiptFile  String?
+  rejectReason String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  Pack         AwardPack   @relation(fields: [packId], references: [id], onDelete: Cascade)
 
   @@unique([userId, packId])
   @@index([userId])
