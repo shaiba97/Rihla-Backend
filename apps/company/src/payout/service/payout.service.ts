@@ -53,6 +53,20 @@ export class PayoutService {
     };
   }
 
+  private static readonly PAYOUT_MIN_DELAY_MS = 30 * 60 * 1000;
+
+  private getDepartureInstant(departureDate: Date, departureTime: string): Date {
+    const dep = new Date(departureDate);
+    const [hh, mm] = (departureTime ?? '00:00').split(':').map(Number);
+    dep.setHours(hh || 0, mm || 0, 0, 0);
+    return dep;
+  }
+
+  private isEligible(departureDate: Date, departureTime: string): boolean {
+    const departure = this.getDepartureInstant(departureDate, departureTime).getTime();
+    return Date.now() - departure >= PayoutService.PAYOUT_MIN_DELAY_MS;
+  }
+
   async getTrips(companyId: string) {
     const trips = await this.prisma.trip.findMany({
       where: { Bus: { companyId } },
@@ -87,6 +101,7 @@ export class PayoutService {
         unpaidAmount: paidOut ? 0 : Math.round(totalRevenue),
         paidOut,
         hasPendingRequest,
+        canRequest: !paidOut && !hasPendingRequest && totalRevenue > 0 && this.isEligible(trip.departureDate, trip.departureTime),
       };
     });
   }
@@ -113,7 +128,8 @@ export class PayoutService {
       throw new NotFoundException('لا توجد رحلات متاحة للصرف');
     }
 
-    const requests = [];
+    const pendingTrips: (typeof trips)[number][] = [];
+    const blockedTrips: { id: string; fromCity: string; toCity: string }[] = [];
 
     for (const trip of trips) {
       if (trip.PayoutRecordItem.length > 0) continue;
@@ -126,6 +142,31 @@ export class PayoutService {
 
       if (totalRevenue <= 0) continue;
 
+      pendingTrips.push(trip);
+      if (!this.isEligible(trip.departureDate, trip.departureTime)) {
+        blockedTrips.push({ id: trip.id, fromCity: trip.fromCity, toCity: trip.toCity });
+      }
+    }
+
+    if (pendingTrips.length === 0) {
+      throw new BadRequestException('لا توجد مبالغ جديدة للصرف');
+    }
+
+    if (blockedTrips.length > 0) {
+      const names = blockedTrips.map(t => `${t.fromCity} ← ${t.toCity}`).join('، ');
+      throw new BadRequestException(
+        `لا يمكن طلب صرف هذه الرحلات قبل مرور ٣٠ دقيقة على موعد الانطلاق: ${names}`,
+      );
+    }
+
+    const requests = [];
+
+    for (const trip of pendingTrips) {
+      const totalRevenue = trip.Booking.reduce(
+        (sum, b) => sum + Number(b.Payment?.companyAmount ?? 0),
+        0,
+      );
+
       const request = await this.prisma.payoutRequest.create({
         data: {
           companyId,
@@ -136,10 +177,6 @@ export class PayoutService {
       });
 
       requests.push(request);
-    }
-
-    if (requests.length === 0) {
-      throw new BadRequestException('لا توجد مبالغ جديدة للصرف');
     }
 
     // Notify all admin users about the payout request
