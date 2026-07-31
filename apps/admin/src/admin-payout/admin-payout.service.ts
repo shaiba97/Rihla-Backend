@@ -87,7 +87,8 @@ export class AdminPayoutService {
     };
   }
 
-  async payTrip(tripId: string, receiptFile?: string) {
+  async payTrip(tripId: string, receipt?: { receiptFile?: string; receiptData?: string; receiptMime?: string }) {
+    const receiptFile = receipt?.receiptFile;
     const trip = await this.prisma.trip.findUnique({
       where: { id: tripId },
       include: {
@@ -111,12 +112,12 @@ export class AdminPayoutService {
       let record = await tx.payoutRecord.findFirst({ where: { companyId } });
       if (!record) {
         record = await tx.payoutRecord.create({
-          data: { companyId, amount: totalAmount, receiptFile, note: `صرف رحلة ${trip.fromCity} → ${trip.toCity}` },
+          data: { companyId, amount: totalAmount, ...receipt, note: `صرف رحلة ${trip.fromCity} → ${trip.toCity}` },
         });
       } else {
         await tx.payoutRecord.update({
           where: { id: record.id },
-          data: { amount: { increment: totalAmount }, receiptFile: receiptFile ?? undefined },
+          data: { amount: { increment: totalAmount }, receiptFile: receipt?.receiptFile ?? undefined, receiptData: receipt?.receiptData ?? undefined, receiptMime: receipt?.receiptMime ?? undefined },
         });
       }
       await tx.payoutRecordItem.create({
@@ -142,7 +143,7 @@ export class AdminPayoutService {
     return { message: 'تم صرف الرحلة بنجاح', data: result };
   }
 
-  async payAll(companyId: string, receiptFile?: string) {
+  async payAll(companyId: string, receipt?: { receiptFile?: string; receiptData?: string; receiptMime?: string }) {
     const unpaidTrips = await this.prisma.trip.findMany({
       where: { Bus: { companyId } },
       include: {
@@ -165,12 +166,12 @@ export class AdminPayoutService {
       let record = await tx.payoutRecord.findFirst({ where: { companyId } });
       if (!record) {
         record = await tx.payoutRecord.create({
-          data: { companyId, amount: totalAmount, receiptFile, note: 'صرف جميع المستحقات' },
+          data: { companyId, amount: totalAmount, ...receipt, note: 'صرف جميع المستحقات' },
         });
       } else {
         await tx.payoutRecord.update({
           where: { id: record.id },
-          data: { amount: { increment: totalAmount }, receiptFile: receiptFile ?? undefined },
+          data: { amount: { increment: totalAmount }, receiptFile: receipt?.receiptFile ?? undefined, receiptData: receipt?.receiptData ?? undefined, receiptMime: receipt?.receiptMime ?? undefined },
         });
       }
       for (const trip of toPay) {
@@ -235,7 +236,7 @@ export class AdminPayoutService {
     };
   }
 
-  async approveRequest(requestId: string, receiptFile?: string) {
+  async approveRequest(requestId: string, receipt?: { receiptFile?: string; receiptData?: string; receiptMime?: string }) {
     const request = await this.prisma.payoutRequest.findUnique({
       where: { id: requestId },
       include: { Trip: { select: { id: true, fromCity: true, toCity: true } } },
@@ -246,7 +247,7 @@ export class AdminPayoutService {
     await this.prisma.$transaction(async (tx: any) => {
       await tx.payoutRequest.update({
         where: { id: requestId },
-        data: { status: 'APPROVED', note: receiptFile ? `إيصال: ${receiptFile}` : null },
+        data: { status: 'APPROVED', note: receipt?.receiptFile ? `إيصال: ${receipt.receiptFile}` : null },
       });
 
       let record = await tx.payoutRecord.findFirst({ where: { companyId: request.companyId } });
@@ -255,14 +256,14 @@ export class AdminPayoutService {
           data: {
             companyId: request.companyId,
             amount: request.amount,
-            receiptFile,
+            ...receipt,
             note: 'موافقة على طلب صرف',
           },
         });
       } else {
         await tx.payoutRecord.update({
           where: { id: record.id },
-          data: { amount: { increment: request.amount }, receiptFile: receiptFile ?? undefined },
+          data: { amount: { increment: request.amount }, receiptFile: receipt?.receiptFile ?? undefined, receiptData: receipt?.receiptData ?? undefined, receiptMime: receipt?.receiptMime ?? undefined },
         });
       }
 
@@ -338,6 +339,8 @@ export class AdminPayoutService {
         amount: Math.round(Number(r.amount)),
         note: r.note,
         receiptFile: r.receiptFile,
+        receiptData: r.receiptData,
+        receiptMime: r.receiptMime,
         createdAt: r.createdAt,
         company: { name: r.Company?.name ?? '—' },
         items: r.Items.map(i => ({

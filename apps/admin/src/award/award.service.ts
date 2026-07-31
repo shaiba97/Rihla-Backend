@@ -45,12 +45,14 @@ export class AwardService {
       orderBy: { createdAt: 'desc' },
     });
   }
-  async approve(id: string, receiptFile?: string) {
+  async approve(id: string, receipt?: { receiptFile?: string; receiptData?: string; receiptMime?: string }) {
     const ua = await this.prisma.userAward.findUnique({ where: { id }, include: { Pack: true } });
     if (!ua) throw new NotFoundException('المكافأة غير موجودة');
     if (ua.status !== 'PENDING') throw new BadRequestException('يمكن قبول المكافآت المعلقة فقط');
     const data: any = { status: 'APPROVED' };
-    if (receiptFile) data.receiptFile = receiptFile;
+    if (receipt?.receiptFile) data.receiptFile = receipt.receiptFile;
+    if (receipt?.receiptData) data.receiptData = receipt.receiptData;
+    if (receipt?.receiptMime) data.receiptMime = receipt.receiptMime;
     await this.prisma.$transaction(async (tx: any) => {
       await tx.userAward.update({ where: { id }, data });
       await tx.expense.create({ data: { amount: ua.Pack.awardValue, reason: `مكافأة: ${ua.Pack.title}` } });
@@ -90,12 +92,14 @@ export class AwardService {
     });
   }
 
-  async approveWithdrawal(id: string, receiptFile?: string) {
+  async approveWithdrawal(id: string, receipt?: { receiptFile?: string; receiptData?: string; receiptMime?: string }) {
     const wr = await this.prisma.withdrawRequest.findUnique({ where: { id } });
     if (!wr) throw new NotFoundException('طلب السحب غير موجود');
     if (wr.status !== 'PENDING') throw new BadRequestException('يمكن قبول الطلبات المعلقة فقط');
     const data: any = { status: 'APPROVED' as WithdrawStatus };
-    if (receiptFile) data.receiptFile = receiptFile;
+    if (receipt?.receiptFile) data.receiptFile = receipt.receiptFile;
+    if (receipt?.receiptData) data.receiptData = receipt.receiptData;
+    if (receipt?.receiptMime) data.receiptMime = receipt.receiptMime;
     return this.prisma.withdrawRequest.update({ where: { id }, data });
   }
 

@@ -2,19 +2,31 @@ import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Req, Uplo
 
 const mkdir = (dir: string) => { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); };
 
-const withdrawalsDir = path.resolve('./uploads/withdrawals');
+const withdrawalsDir = path.join(__dirname, '../../../uploads/withdrawals');
 mkdir(withdrawalsDir);
-const withdrawalStorage = multer.diskStorage({
-  destination: (_r, _f, cb) => cb(null, withdrawalsDir),
-  filename: (_r, f, cb) => cb(null, `withdraw_${Date.now()}_${Math.random().toString(36).slice(2)}${path.extname(f.originalname)}`),
+
+const awardReceiptsDir = path.join(__dirname, '../../../uploads/award-receipts');
+mkdir(awardReceiptsDir);
+
+const receiptUpload = (dir: string, prefix: string) => FileInterceptor('receiptFile', {
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
 });
 
-const awardReceiptsDir = path.join(__dirname, '../../../../uploads/award-receipts');
-mkdir(awardReceiptsDir);
-const awardReceiptStorage = multer.diskStorage({
-  destination: (_r, _f, cb) => cb(null, awardReceiptsDir),
-  filename: (_r, f, cb) => cb(null, `award_${Date.now()}_${Math.random().toString(36).slice(2)}${path.extname(f.originalname)}`),
-});
+const captureReceipt = (dir: string, prefix: string, file?: Express.Multer.File) => {
+  if (!file?.buffer) return { receiptFile: undefined, receiptData: undefined, receiptMime: undefined };
+  const filename = `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2)}${path.extname(file.originalname)}`;
+  try {
+    fs.writeFileSync(path.join(dir, filename), file.buffer);
+  } catch {
+    // disk copy is best-effort; DB copy below is the source of truth
+  }
+  return {
+    receiptFile: `/uploads/${path.basename(dir)}/${filename}`,
+    receiptData: file.buffer.toString('base64'),
+    receiptMime: file.mimetype,
+  };
+};
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('admin/awards')
@@ -28,10 +40,9 @@ export class AwardController {
   @Get('pending') getPending() { return this.svc.getPending(); }
 
   @Post('approve/:id')
-  @UseInterceptors(FileInterceptor('receiptFile', { storage: awardReceiptStorage, limits: { fileSize: 5 * 1024 * 1024 } }))
+  @UseInterceptors(receiptUpload(awardReceiptsDir, 'award'))
   approve(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
-    const receiptFile = file ? `/uploads/award-receipts/${file.filename}` : undefined;
-    return this.svc.approve(id, receiptFile);
+    return this.svc.approve(id, captureReceipt(awardReceiptsDir, 'award', file));
   }
 
   @Post('reject/:id')
@@ -49,10 +60,9 @@ export class AwardController {
   getWithdrawalHistory() { return this.svc.getWithdrawalHistory(); }
 
   @Post('withdrawals/:id/approve')
-  @UseInterceptors(FileInterceptor('receiptFile', { storage: withdrawalStorage, limits: { fileSize: 5 * 1024 * 1024 } }))
+  @UseInterceptors(receiptUpload(withdrawalsDir, 'withdraw'))
   approveWithdrawal(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
-    const receiptFile = file ? `/uploads/withdrawals/${file.filename}` : undefined;
-    return this.svc.approveWithdrawal(id, receiptFile);
+    return this.svc.approveWithdrawal(id, captureReceipt(withdrawalsDir, 'withdraw', file));
   }
 
   @Post('withdrawals/:id/reject')

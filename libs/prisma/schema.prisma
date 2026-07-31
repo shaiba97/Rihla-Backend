@@ -309,6 +309,8 @@ model UserAward {
   packId       String
   status       AwardStatus @default(PENDING)
   receiptFile  String?
+  receiptData  String?
+  receiptMime  String?
   rejectReason String?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
@@ -334,6 +336,8 @@ model WithdrawRequest {
   amount         Decimal        @db.Decimal(10, 2)
   status         WithdrawStatus @default(PENDING)
   receiptFile    String?
+  receiptData    String?
+  receiptMime    String?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   User           users          @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -379,6 +383,8 @@ model PayoutRecord {
   companyId   String
   amount      Decimal             @db.Decimal(10, 2)
   receiptFile String?
+  receiptData String?
+  receiptMime String?
   note        String?
   createdAt   DateTime            @default(now())
   Company     users               @relation(fields: [companyId], references: [id], onDelete: Cascade)
