@@ -96,6 +96,10 @@ export class AdminFinancialService {
     private readonly notifications: NotificationsService,
   ) {}
 
+  private round2(n: number): number {
+    return Math.round((Number(n) || 0) * 100) / 100;
+  }
+
   async getDashboardSummary() {
     const now = new Date();
     const today = new Date(now); today.setHours(0, 0, 0, 0);
@@ -172,8 +176,8 @@ export class AdminFinancialService {
       bookings: { total: totalBookings, confirmed: confirmedBookings, pending: pendingBookings, cancelled: cancelledBookings, today: bookingsToday, thisMonth: bookingsThisMonth, confirmationRate: totalBookings > 0 ? Math.round((confirmedBookings / totalBookings) * 100) : 0 },
       operations: { totalTrips, activeTrips: scheduledTrips, totalBuses },
       revenue: { totalRevenue: Math.round(totalRevenue * 100) / 100, totalPlatformEarnings: Math.round(totalPlatformEarnings * 100) / 100, totalCompanyAmount: Math.round(totalCompanyAmount * 100) / 100, revenueThisMonth: Math.round(revenueThisMonth * 100) / 100, totalSuccessfulTransactions: allPayments.length, dailyRevenue, paymentMethodBreakdown: paymentMethodBreakdown.map(m => ({ ...m, amount: Math.round(m.amount * 100) / 100 })) },
-      recentBookings: recentBookings.map((b: DashboardBooking) => ({ id: b.id, customerName: b.Customer?.name ?? '—', from: b.Trip?.fromCity ?? '—', to: b.Trip?.toCity ?? '—', date: b.Trip?.departureDate, seatNumber: b.seatNumbers?.[0] ?? 0, status: b.status, paymentStatus: b.Payment?.status, amount: Number(b.Payment?.totalAmount ?? 0), createdAt: b.createdAt })),
-      pendingActions: recentPendingPayments.map((p: DashboardPendingPayment) => ({ id: p.id, customerName: p.Booking?.Customer?.name ?? '—', from: p.Booking?.Trip?.fromCity ?? '—', to: p.Booking?.Trip?.toCity ?? '—', amount: Number(p.totalAmount), paymentMethod: p.paymentMethod, createdAt: p.createdAt })),
+      recentBookings: recentBookings.map((b: DashboardBooking) => ({ id: b.id, customerName: b.Customer?.name ?? '—', from: b.Trip?.fromCity ?? '—', to: b.Trip?.toCity ?? '—', date: b.Trip?.departureDate, seatNumber: b.seatNumbers?.[0] ?? 0, status: b.status, paymentStatus: b.Payment?.status, amount: this.round2(Number(b.Payment?.totalAmount ?? 0)), createdAt: b.createdAt })),
+      pendingActions: recentPendingPayments.map((p: DashboardPendingPayment) => ({ id: p.id, customerName: p.Booking?.Customer?.name ?? '—', from: p.Booking?.Trip?.fromCity ?? '—', to: p.Booking?.Trip?.toCity ?? '—', amount: this.round2(Number(p.totalAmount)), paymentMethod: p.paymentMethod, createdAt: p.createdAt })),
     };
   }
 
@@ -213,18 +217,18 @@ export class AdminFinancialService {
     const totalExpensesVal = Number(totalExpenses._sum.amount ?? 0);
 
     return {
-      totalRevenue, totalCompanyAmount,
-      totalPlatformEarnings,
-      totalExpenses: totalExpensesVal,
-      netRevenue: totalPlatformEarnings - totalExpensesVal,
+      totalRevenue: this.round2(totalRevenue), totalCompanyAmount: this.round2(totalCompanyAmount),
+      totalPlatformEarnings: this.round2(totalPlatformEarnings),
+      totalExpenses: this.round2(totalExpensesVal),
+      netRevenue: this.round2(totalPlatformEarnings - totalExpensesVal),
       totalTransactions: successPayments.length, pendingPayments, confirmedPayments,
       activeFee: activeFee ? { id: activeFee.id, percentage: Number(activeFee.percentage), label: activeFee.label ?? null, isActive: activeFee.isActive, createdAt: activeFee.createdAt } : null,
-      monthlyBreakdown,
+      monthlyBreakdown: monthlyBreakdown.map((m: { month: string; revenue: number; earnings: number; count: number }) => ({ month: m.month, revenue: this.round2(m.revenue), earnings: this.round2(m.earnings), count: m.count })),
       bookingStatus: { pending: bm['PENDING'] ?? 0, confirmed: bm['CONFIRMED'] ?? 0, cancelled: bm['CANCELLED'] ?? 0 },
       allTransactions: allPayments.length,
       recentPayments: allPayments.map((p: FullPaymentBooking) => ({
-        id: p.id, status: p.status, totalAmount: Number(p.totalAmount),
-        platformFeeAmount: Number(p.platformFeeAmount ?? 0), companyAmount: Number(p.companyAmount ?? 0),
+        id: p.id, status: p.status, totalAmount: this.round2(Number(p.totalAmount)),
+        platformFeeAmount: this.round2(Number(p.platformFeeAmount ?? 0)), companyAmount: this.round2(Number(p.companyAmount ?? 0)),
         paymentMethod: p.paymentMethod, transactionId: p.transactionId, recieptFile: p.receiptFile,
         createdAt: p.createdAt, bookingId: p.bookingId,
         bookingStatus: p.Booking?.status,
@@ -242,8 +246,8 @@ export class AdminFinancialService {
       orderBy: { createdAt: 'desc' },
     });
     return payments.map((p: PendingPaymentDetail) => ({
-      id: p.id, status: p.status, totalAmount: Number(p.totalAmount),
-      platformFeeAmount: Number(p.platformFeeAmount ?? 0), companyAmount: Number(p.companyAmount ?? 0),
+      id: p.id, status: p.status, totalAmount: this.round2(Number(p.totalAmount)),
+      platformFeeAmount: this.round2(Number(p.platformFeeAmount ?? 0)), companyAmount: this.round2(Number(p.companyAmount ?? 0)),
       paymentMethod: p.paymentMethod, transactionId: p.transactionId, recieptFile: p.receiptFile,
       createdAt: p.createdAt, bookingId: p.bookingId,
       seatNumbers: p.Booking?.seatNumbers,
