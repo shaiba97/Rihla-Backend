@@ -3,6 +3,17 @@
 import 'dotenv/config';
 import { defineConfig } from 'prisma/config';
 
+function resolveDirectUrl(): string | undefined {
+  const explicit = process.env['DATABASE_URL_UNPOOLED'] ?? process.env['DIRECT_URL'];
+  if (explicit) return explicit;
+  const url = process.env['DATABASE_URL'];
+  if (!url) return undefined;
+  // Neon/serverless poolers (e.g. hosts ending in "-pooler") cannot run
+  // migrations: session-level advisory locks hang over PgBouncer transaction
+  // pooling. Derive the direct (non-pooled) URL automatically by stripping "-pooler".
+  return url.replace(/-pooler\./, '.');
+}
+
 export default defineConfig({
   schema: 'libs/prisma/schema.prisma',
   migrations: {
@@ -10,6 +21,6 @@ export default defineConfig({
   },
   datasource: {
     url: process.env['DATABASE_URL'],
-    directUrl: process.env['DATABASE_URL_UNPOOLED'],
+    directUrl: resolveDirectUrl(),
   },
 });
