@@ -19,7 +19,7 @@ export class UsersService {
   async validateUser(
     identifier: string,
     password: string,
-  ): Promise<UserWithoutPassword | null> {
+  ): Promise<{ user: UserWithoutPassword } | { reason: 'identifier-not-found' | 'password-wrong' }> {
     const normalized = identifier.toLowerCase().trim();
 
     const user =
@@ -31,19 +31,19 @@ export class UsersService {
       }));
 
     if (!user) {
-      return null;
+      return { reason: 'identifier-not-found' };
     }
 
-    if (!user.password) return null;
+    if (!user.password) return { reason: 'password-wrong' };
 
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
-      return null;
+      return { reason: 'password-wrong' };
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { password: _, ...result } = user;
-    return result;
+    return { user: result };
   }
 
   login(user: UserWithoutPassword) {

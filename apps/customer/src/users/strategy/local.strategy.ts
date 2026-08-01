@@ -16,12 +16,19 @@ export class LocalStrategy extends PassportStrategy(Strategy) {
 
   async validate(req: Request, email: string, password: string): Promise<any> {
     const identifier: string = email || req.body.phone;
-    const user = await this.usersService.validateUser(identifier, password);
-    if (!user) {
-      throw new UnauthorizedException(
-        'البريد الإلكتروني أو كلمة المرور غير صحيحة',
-      );
+    const result = await this.usersService.validateUser(identifier, password);
+    if ('reason' in result) {
+      const usedEmail = !!email;
+      if (result.reason === 'identifier-not-found') {
+        throw new UnauthorizedException(
+          usedEmail
+            ? 'البريد الإلكتروني غير مسجل في النظام'
+            : 'رقم الهاتف غير مسجل في النظام',
+        );
+      }
+      throw new UnauthorizedException('كلمة المرور غير صحيحة');
     }
+    const user = result.user;
     if (user.role !== 'USER') {
       throw new UnauthorizedException('هذا الحساب غير مصرح له بتطبيق العميل');
     }
