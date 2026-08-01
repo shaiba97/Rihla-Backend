@@ -10,6 +10,14 @@ export class CitiesService {
     return this.states.map((s) => ({ state: s.state, cities: [...s.cities] }));
   }
 
+  getStates(): string[] {
+    return this.states.map((s) => s.state);
+  }
+
+  getStatesWithCities(): CityStateGroup[] {
+    return this.getAllStates();
+  }
+
   getAllCities(): CityEntity[] {
     return this.states.flatMap((s) =>
       s.cities.map((name) => ({ state: s.state, name })),

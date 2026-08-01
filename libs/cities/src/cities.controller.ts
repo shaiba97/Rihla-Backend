@@ -11,6 +11,16 @@ export class CitiesController {
     return this.citiesService.getAllStates();
   }
 
+  @Get('states')
+  getStates() {
+    return this.citiesService.getStates();
+  }
+
+  @Get('states-with-cities')
+  getStatesWithCities() {
+    return this.citiesService.getStatesWithCities();
+  }
+
   @Get('all')
   getAllCities() {
     return this.citiesService.getAllCities();
