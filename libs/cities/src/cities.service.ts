@@ -18,10 +18,8 @@ export class CitiesService {
     return this.getAllStates();
   }
 
-  getAllCities(): CityEntity[] {
-    return this.states.flatMap((s) =>
-      s.cities.map((name) => ({ state: s.state, name })),
-    );
+  getAllCities(): string[] {
+    return this.states.flatMap((s) => s.cities);
   }
 
   getCitiesByState(state: string): string[] {
@@ -35,8 +33,10 @@ export class CitiesService {
   search(query: string): CityEntity[] {
     const q = query.trim();
     if (!q) return [];
-    return this.getAllCities().filter(
-      (c) => c.name.includes(q) || c.state.includes(q),
+    return this.states.flatMap((s) =>
+      s.cities
+        .filter((name) => name.includes(q) || s.state.includes(q))
+        .map((name) => ({ state: s.state, name })),
     );
   }
 }

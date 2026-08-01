@@ -7,8 +7,8 @@ export class CitiesController {
   constructor(private readonly citiesService: CitiesService) {}
 
   @Get()
-  getAllStates() {
-    return this.citiesService.getAllStates();
+  getAllCities() {
+    return this.citiesService.getAllCities();
   }
 
   @Get('states')
@@ -22,8 +22,8 @@ export class CitiesController {
   }
 
   @Get('all')
-  getAllCities() {
-    return this.citiesService.getAllCities();
+  getAll() {
+    return this.citiesService.getAllStates();
   }
 
   @Get('search')
