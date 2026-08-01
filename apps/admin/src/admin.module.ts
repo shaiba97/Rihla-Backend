@@ -11,11 +11,12 @@ import { BlogModule } from './blog/blog.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AdminPayoutModule } from './admin-payout/admin-payout.module';
 import { TafiyaWsModule } from '@app/websocket';
+import { CitiesModule } from '@app/cities';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 
 @Module({
-  imports: [UsersModule, PlatformFeeModule, PaymentAccountsModule, ExpenseModule, AdminFinancialModule, AdminUsersModule, SupportContactsModule, AwardModule, BlogModule, NotificationsModule, AdminPayoutModule, TafiyaWsModule],
+  imports: [UsersModule, PlatformFeeModule, PaymentAccountsModule, ExpenseModule, AdminFinancialModule, AdminUsersModule, SupportContactsModule, AwardModule, BlogModule, NotificationsModule, AdminPayoutModule, TafiyaWsModule, CitiesModule],
   controllers: [AdminController],
   providers: [AdminService],
 })
