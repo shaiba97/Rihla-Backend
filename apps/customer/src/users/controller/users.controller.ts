@@ -10,9 +10,11 @@ import {
   Put,
   UseGuards,
   Req,
+  ForbiddenException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import type { Request } from 'express';
 import { UsersService } from '../service/users.service';
 import { CreateUserDto, UpdateUserDto, UserResponseDto } from '../dto/user.dto';
 import { UserEntity } from '../entity/user.entity';
@@ -45,9 +47,13 @@ export class UsersController {
     return { data: user };
   }
 
+  /**
+   * Public registration endpoint. Role is always forced to USER server-side
+   * (see UsersService.create) — privileged accounts cannot be self-assigned.
+   */
   @Post('post-user')
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Create a new user' })
+  @ApiOperation({ summary: 'Create a new user (role is always USER)' })
   @ApiResponse({
     status: 201,
     description: 'User created successfully',
@@ -57,61 +63,71 @@ export class UsersController {
     return this.usersService.create(createUserDto);
   }
 
+  /** Returns only the authenticated user's own record. */
   @Get('get-users')
-  @ApiOperation({ summary: 'Get all users' })
-  @ApiResponse({
-    status: 200,
-    description: 'Users retrieved successfully',
-    type: [UserResponseDto],
-  })
-  async getUsers() {
-    return this.usersService.getUsers();
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Get own user record' })
+  async getUsers(@Req() req: Request) {
+    return this.usersService.getUsers((req as any).user.id);
   }
 
   @Get('get-users/property/:property/value/:value')
-  @ApiOperation({ summary: 'Get all users by property and value' })
-  @ApiResponse({
-    status: 200,
-    description: 'Users retrieved successfully',
-    type: [UserResponseDto],
-  })
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Look up own record by id/email/phone only' })
   async getUsersByProperty(
     @Param('property') property: string,
     @Param('value') value: string,
+    @Req() req: Request,
   ) {
-    return this.usersService.getUsersByProperty(property, value);
+    this.assertAllowedProperty(property);
+    return this.usersService.getUsersByProperty(
+      property,
+      value,
+      (req as any).user.id,
+    );
   }
 
   @Get('get-user/property/:property/value/:value')
-  @ApiOperation({ summary: 'Get user by property and value' })
-  @ApiResponse({
-    status: 200,
-    description: 'User retrieved successfully',
-    type: UserResponseDto,
-  })
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Look up own record by id/email/phone only' })
   async getUser(
     @Param('property') property: string,
     @Param('value') value: string,
+    @Req() req: Request,
   ): Promise<UserEntity> {
-    return this.usersService.getUser(property, value);
+    this.assertAllowedProperty(property);
+    return this.usersService.getUser(property, value, (req as any).user.id);
   }
 
   @Put('update-user/:id')
-  @ApiOperation({ summary: 'Update user' })
-  @ApiResponse({
-    status: 200,
-    description: 'User updated successfully',
-    type: UserResponseDto,
-  })
-  async update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Update own user record' })
+  async update(
+    @Param('id') id: string,
+    @Body() updateUserDto: UpdateUserDto,
+    @Req() req: Request,
+  ) {
+    if (id !== (req as any).user.id) {
+      throw new ForbiddenException('لا يمكنك تعديل حساب مستخدم آخر');
+    }
     return this.usersService.update(id, updateUserDto);
   }
 
   @Delete('delete-user/:id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Delete user' })
-  @ApiResponse({ status: 200, description: 'User deleted successfully' })
-  async remove(@Param('id') id: string) {
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Delete own user account' })
+  async remove(@Param('id') id: string, @Req() req: Request) {
+    if (id !== (req as any).user.id) {
+      throw new ForbiddenException('لا يمكنك حذف حساب مستخدم آخر');
+    }
     return this.usersService.remove(id);
+  }
+
+  private assertAllowedProperty(property: string): void {
+    const allowed = ['id', 'email', 'phone'];
+    if (!allowed.includes(property)) {
+      throw new ForbiddenException('خاصية البحث غير مسموح بها');
+    }
   }
 }

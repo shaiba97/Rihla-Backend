@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '@app/prisma';
@@ -9,6 +10,22 @@ import { PDFService } from '@app/pdf';
 import { TafiyaWsGateway, WS_EVENTS } from '@app/websocket';
 import { PaymentStatus } from '@app/prisma';
 import { CreatePaymentDto, UpdatePaymentDto } from '../dto/booking.dto';
+
+/** Properties a customer may filter payments by. */
+const FILTERABLE_PROPERTIES = [
+  'id',
+  'bookingId',
+  'customerId',
+  'status',
+] as const;
+
+function assertFilterableProperties(properties: string[]): void {
+  for (const p of properties) {
+    if (!(FILTERABLE_PROPERTIES as readonly string[]).includes(p)) {
+      throw new ForbiddenException('خاصية البحث غير مسموح بها');
+    }
+  }
+}
 
 export interface CreatePaymentInput {
   bookingId: string;
@@ -49,6 +66,14 @@ export class PaymentService {
       throw new NotFoundException('الحجز غير موجود');
     }
 
+    // A customer can only pay for their own booking.
+    if (
+      createPaymentDto.customerId &&
+      booking.customerId !== createPaymentDto.customerId
+    ) {
+      throw new ForbiddenException('لا يمكنك الدفع لحجز مستخدم آخر');
+    }
+
     const existingPayment = await this.prisma.payment.findUnique({
       where: { bookingId: createPaymentDto.bookingId },
     });
@@ -67,7 +92,7 @@ export class PaymentService {
       }
     }
 
-    const seatNumbers = (booking.seatNumbers ?? []) as number[];
+    const seatNumbers = booking.seatNumbers ?? [];
     const seatCount = seatNumbers.length;
     const tripPrice = Number(booking.Trip?.price ?? 0);
     const baseAmount = tripPrice * seatCount;
@@ -82,34 +107,19 @@ export class PaymentService {
     const serverCompanyAmount = baseAmount - platformFeeAmount;
     const serverTotalAmount = baseAmount;
 
-    if (
-      createPaymentDto.companyAmount !== undefined &&
-      createPaymentDto.companyAmount !== serverCompanyAmount
-    ) {
-      this.logger.warn(
-        `companyAmount mismatch: DTO sent ${createPaymentDto.companyAmount}, server calculated ${serverCompanyAmount}`,
-      );
-    }
-    if (
-      createPaymentDto.totalAmount !== undefined &&
-      createPaymentDto.totalAmount !== serverTotalAmount
-    ) {
-      this.logger.warn(
-        `totalAmount mismatch: DTO sent ${createPaymentDto.totalAmount}, server calculated ${serverTotalAmount}`,
-      );
-    }
-
+    // All financial figures are derived server-side; client-sent amounts are
+    // ignored. Status always starts as PENDING — only an admin can confirm.
     const payment = await this.prisma.payment.create({
       data: {
         bookingId: createPaymentDto.bookingId,
-        customerId: createPaymentDto.customerId,
+        customerId: booking.customerId,
         price: tripPrice,
         totalAmount: serverTotalAmount,
         companyAmount: serverCompanyAmount,
-        commissionAmount: createPaymentDto.commissionAmount,
+        commissionAmount: platformFeeAmount,
         platformFeeAmount,
         currency: createPaymentDto.currency || 'SDG',
-        status: createPaymentDto.status || PaymentStatus.PENDING,
+        status: PaymentStatus.PENDING,
         transactionId: createPaymentDto.transactionId,
         receiptFile: createPaymentDto.receiptFile,
         paymentMethod: createPaymentDto.paymentMethod,
@@ -144,8 +154,10 @@ export class PaymentService {
     };
   }
 
-  async getPayments() {
+  /** Only the requesting customer's payments are returned. */
+  async getPayments(customerId: string) {
     return this.prisma.payment.findMany({
+      where: { customerId },
       include: {
         Booking: { include: { Trip: { include: { Bus: true } } } },
       },
@@ -153,14 +165,19 @@ export class PaymentService {
     });
   }
 
+  /** Filterable properties are allowlisted; results always scoped to the
+   *  requesting customer. */
   async getPaymentsByProperties(
     property1: string,
     value1: string,
     property2: string,
     value2: string,
+    customerId: string,
   ) {
+    assertFilterableProperties([property1, property2]);
     return this.prisma.payment.findMany({
       where: {
+        customerId,
         AND: [{ [property1]: value1 }, { [property2]: value2 }],
       },
       include: {
@@ -170,9 +187,17 @@ export class PaymentService {
     });
   }
 
-  async getPaymentsByProperty(property: string, value: string) {
+  async getPaymentsByProperty(
+    property: string,
+    value: string,
+    customerId: string,
+  ) {
+    assertFilterableProperties([property]);
+    const whereClause: any = { customerId };
+    whereClause[property] = value;
+
     return this.prisma.payment.findMany({
-      where: { [property]: value },
+      where: whereClause,
       include: {
         Booking: { include: { Trip: { include: { Bus: true } } } },
       },
@@ -180,9 +205,13 @@ export class PaymentService {
     });
   }
 
-  async getPayment(property: string, value: string) {
+  async getPayment(property: string, value: string, customerId: string) {
+    assertFilterableProperties([property]);
+    const whereClause: any = { customerId };
+    whereClause[property] = value;
+
     const payment = await this.prisma.payment.findFirst({
-      where: { [property]: value },
+      where: whereClause,
       include: {
         Booking: { include: { Trip: { include: { Bus: true } } } },
       },
@@ -200,9 +229,12 @@ export class PaymentService {
     value1: string,
     property2: string,
     value2: string,
+    customerId: string,
   ) {
+    assertFilterableProperties([property1, property2]);
     const payment = await this.prisma.payment.findFirst({
       where: {
+        customerId,
         AND: [{ [property1]: value1 }, { [property2]: value2 }],
       },
       include: {
@@ -217,39 +249,49 @@ export class PaymentService {
     return payment;
   }
 
-  async update(id: string, updatePaymentDto: UpdatePaymentDto) {
-    // Check if payment exists
+  /** Customers may only re-upload a receipt on their own PENDING payment —
+   *  amounts and status are never writable here (admin-only concerns). */
+  async update(
+    id: string,
+    updatePaymentDto: UpdatePaymentDto,
+    customerId: string,
+  ) {
     const existingPayment = await this.prisma.payment.findUnique({
       where: { id },
-      include: { Booking: { include: { Trip: true } } },
     });
 
     if (!existingPayment) {
       throw new NotFoundException('الدفعة غير موجودة');
     }
 
-    // Build update data
+    if (existingPayment.customerId !== customerId) {
+      throw new ForbiddenException('لا يمكنك تعديل دفعة مستخدم آخر');
+    }
+
     const updateData: any = {};
-    if (updatePaymentDto.bookingId !== undefined)
-      updateData.bookingId = updatePaymentDto.bookingId;
-    if (updatePaymentDto.customerId !== undefined)
-      updateData.customerId = updatePaymentDto.customerId;
-    if (updatePaymentDto.totalAmount !== undefined)
-      updateData.totalAmount = updatePaymentDto.totalAmount;
-    if (updatePaymentDto.companyAmount !== undefined)
-      updateData.companyAmount = updatePaymentDto.companyAmount;
-    if (updatePaymentDto.commissionAmount !== undefined)
-      updateData.commissionAmount = updatePaymentDto.commissionAmount;
-    if (updatePaymentDto.currency !== undefined)
-      updateData.currency = updatePaymentDto.currency;
-    if (updatePaymentDto.status !== undefined)
-      updateData.status = updatePaymentDto.status;
-    if (updatePaymentDto.transactionId !== undefined)
-      updateData.transactionId = updatePaymentDto.transactionId;
     if (updatePaymentDto.receiptFile !== undefined)
       updateData.receiptFile = updatePaymentDto.receiptFile;
+    if (updatePaymentDto.transactionId !== undefined)
+      updateData.transactionId = updatePaymentDto.transactionId;
+    if (updatePaymentDto.paymentMethod !== undefined)
+      updateData.paymentMethod = updatePaymentDto.paymentMethod;
 
-    // Update payment
+    if (Object.keys(updateData).length === 0) {
+      throw new BadRequestException('لا توجد بيانات قابلة للتعديل');
+    }
+
+    if (
+      updateData.transactionId &&
+      updateData.transactionId !== existingPayment.transactionId
+    ) {
+      const existingTransaction = await this.prisma.payment.findUnique({
+        where: { transactionId: updateData.transactionId },
+      });
+      if (existingTransaction) {
+        throw new BadRequestException('رقم المعاملة مستخدم بالفعل');
+      }
+    }
+
     const updatedPayment = await this.prisma.payment.update({
       where: { id },
       data: updateData,
@@ -262,14 +304,17 @@ export class PaymentService {
     };
   }
 
-  async delete(id: string) {
-    // Check if payment exists
+  async delete(id: string, customerId: string) {
     const existingPayment = await this.prisma.payment.findUnique({
       where: { id },
     });
 
     if (!existingPayment) {
       throw new NotFoundException('الدفعة غير موجودة');
+    }
+
+    if (existingPayment.customerId !== customerId) {
+      throw new ForbiddenException('لا يمكنك حذف دفعة مستخدم آخر');
     }
 
     await this.prisma.payment.delete({

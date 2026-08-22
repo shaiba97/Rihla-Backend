@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '@app/prisma';
 
 @Injectable()
@@ -11,7 +15,12 @@ export class AwardsService {
       include: { Pack: true },
       orderBy: { createdAt: 'desc' },
     });
-    return awards.map(a => ({ id: a.id, status: a.status, pack: a.Pack, createdAt: a.createdAt }));
+    return awards.map((a) => ({
+      id: a.id,
+      status: a.status,
+      pack: a.Pack,
+      createdAt: a.createdAt,
+    }));
   }
 
   async getPacks(userId?: string) {
@@ -22,16 +31,24 @@ export class AwardsService {
     if (!userId) return packs;
 
     const totalBookings = await this.prisma.booking.count({
-      where: { customerId: userId, status: 'CONFIRMED', Payment: { status: 'SUCCESS' } },
+      where: {
+        customerId: userId,
+        status: 'CONFIRMED',
+        Payment: { status: 'SUCCESS' },
+      },
     });
     const userAwards = await this.prisma.userAward.findMany({
       where: { userId },
       select: { packId: true, status: true },
     });
-    const approvedSet = new Set(userAwards.filter(a => a.status === 'APPROVED').map(a => a.packId));
-    const pendingSet = new Set(userAwards.filter(a => a.status === 'PENDING').map(a => a.packId));
+    const approvedSet = new Set(
+      userAwards.filter((a) => a.status === 'APPROVED').map((a) => a.packId),
+    );
+    const pendingSet = new Set(
+      userAwards.filter((a) => a.status === 'PENDING').map((a) => a.packId),
+    );
 
-    return packs.map(p => ({
+    return packs.map((p) => ({
       ...p,
       userTotalBookings: totalBookings,
       eligible: totalBookings >= p.minBookings,
@@ -41,11 +58,17 @@ export class AwardsService {
   }
 
   async requestAward(userId: string, packId: string) {
-    const pack = await this.prisma.awardPack.findUnique({ where: { id: packId } });
+    const pack = await this.prisma.awardPack.findUnique({
+      where: { id: packId },
+    });
     if (!pack) throw new NotFoundException('المكافأة غير موجودة');
 
     const totalBookings = await this.prisma.booking.count({
-      where: { customerId: userId, status: 'CONFIRMED', Payment: { status: 'SUCCESS' } },
+      where: {
+        customerId: userId,
+        status: 'CONFIRMED',
+        Payment: { status: 'SUCCESS' },
+      },
     });
     if (totalBookings < pack.minBookings) {
       throw new BadRequestException('لم تصل إلى الحد الأدنى من الحجوزات');
@@ -54,13 +77,16 @@ export class AwardsService {
     const existing = await this.prisma.userAward.findUnique({
       where: { userId_packId: { userId, packId } },
     });
-    if (existing) throw new BadRequestException('تم تقديم طلب لهذه المكافأة مسبقاً');
+    if (existing)
+      throw new BadRequestException('تم تقديم طلب لهذه المكافأة مسبقاً');
 
     return this.prisma.userAward.create({ data: { userId, packId } });
   }
 
   async getPackDetail(userId: string, packId: string) {
-    const pack = await this.prisma.awardPack.findUnique({ where: { id: packId } });
+    const pack = await this.prisma.awardPack.findUnique({
+      where: { id: packId },
+    });
     if (!pack) throw new NotFoundException('المكافأة غير موجودة');
 
     const awards = await this.prisma.userAward.findMany({
@@ -69,7 +95,11 @@ export class AwardsService {
     });
 
     const totalBookings = await this.prisma.booking.count({
-      where: { customerId: userId, status: 'CONFIRMED', Payment: { status: 'SUCCESS' } },
+      where: {
+        customerId: userId,
+        status: 'CONFIRMED',
+        Payment: { status: 'SUCCESS' },
+      },
     });
 
     return { pack, awards, totalBookings };
@@ -80,7 +110,10 @@ export class AwardsService {
       where: { userId, status: 'APPROVED' },
       include: { Pack: true },
     });
-    const total = approved.reduce((sum, a) => sum + Number(a.Pack.awardValue), 0);
+    const total = approved.reduce(
+      (sum, a) => sum + Number(a.Pack.awardValue),
+      0,
+    );
     const withdrawn = await this.prisma.withdrawRequest.aggregate({
       where: { userId, status: 'APPROVED' },
       _sum: { amount: true },
@@ -96,24 +129,46 @@ export class AwardsService {
     userId: string,
     data: { bankName: string; accountHolder: string; accountNumber: string },
   ) {
-    const earnings = await this.getTotalEarnings(userId);
-    if (earnings.available <= 0) {
-      throw new BadRequestException('لا يوجد رصيد متاح للسحب');
-    }
-    const pending = await this.prisma.withdrawRequest.findFirst({
-      where: { userId, status: 'PENDING' },
-    });
-    if (pending) {
-      throw new BadRequestException('لديك طلب سحب معلق بالفعل');
-    }
-    return this.prisma.withdrawRequest.create({
-      data: {
-        userId,
-        bankName: data.bankName,
-        accountHolder: data.accountHolder,
-        accountNumber: data.accountNumber,
-        amount: earnings.available,
-      },
+    // The balance read, pending-check and insert run inside one transaction
+    // serialized by a per-user advisory lock, so two concurrent requests can
+    // never both withdraw the full balance (double-spend race).
+    return this.prisma.$transaction(async (tx: any) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+
+      const approved = await tx.userAward.findMany({
+        where: { userId, status: 'APPROVED' },
+        include: { Pack: true },
+      });
+      const total = approved.reduce(
+        (sum: number, a: any) => sum + Number(a.Pack.awardValue),
+        0,
+      );
+      const withdrawnAgg = await tx.withdrawRequest.aggregate({
+        where: { userId, status: 'APPROVED' },
+        _sum: { amount: true },
+      });
+      const available = total - Number(withdrawnAgg._sum.amount ?? 0);
+
+      if (available <= 0) {
+        throw new BadRequestException('لا يوجد رصيد متاح للسحب');
+      }
+
+      const pending = await tx.withdrawRequest.findFirst({
+        where: { userId, status: 'PENDING' },
+      });
+      if (pending) {
+        throw new BadRequestException('لديك طلب سحب معلق بالفعل');
+      }
+
+      return tx.withdrawRequest.create({
+        data: {
+          userId,
+          bankName: data.bankName,
+          accountHolder: data.accountHolder,
+          accountNumber: data.accountNumber,
+          amount: available,
+        },
+      });
     });
   }
 

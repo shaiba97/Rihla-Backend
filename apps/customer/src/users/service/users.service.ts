@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { CreateUserDto, UpdateUserDto } from '../dto/user.dto';
 import { UserEntity, UserWithoutPassword } from '../entity/user.entity';
@@ -7,6 +7,23 @@ import { PrismaService } from '@app/prisma';
 import * as bcrypt from 'bcrypt';
 
 const tokenBlacklist = new Set<string>();
+
+const SALT_ROUNDS = 12;
+
+/** Fields safe to expose — never password/refreshToken. */
+const PUBLIC_USER_SELECT = {
+  id: true,
+  name: true,
+  email: true,
+  phone: true,
+  role: true,
+  googleId: true,
+  facebookId: true,
+  avatar: true,
+  isActive: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
 
 @Injectable()
 export class UsersService {
@@ -19,7 +36,10 @@ export class UsersService {
   async validateUser(
     identifier: string,
     password: string,
-  ): Promise<{ user: UserWithoutPassword } | { reason: 'identifier-not-found' | 'password-wrong' }> {
+  ): Promise<
+    | { user: UserWithoutPassword }
+    | { reason: 'identifier-not-found' | 'password-wrong' }
+  > {
     const normalized = identifier.toLowerCase().trim();
 
     const user =
@@ -80,7 +100,8 @@ export class UsersService {
     if (!createUserDto || (!createUserDto.email && !createUserDto.phone)) {
       return {
         success: false,
-        message: 'بيانات المستخدم غير صالحة - البريد الإلكتروني أو الهاتف مطلوب',
+        message:
+          'بيانات المستخدم غير صالحة - البريد الإلكتروني أو الهاتف مطلوب',
       };
     }
 
@@ -89,10 +110,14 @@ export class UsersService {
 
     const existingUser =
       (normalizedEmail
-        ? await this.prisma.users.findUnique({ where: { email: normalizedEmail } })
+        ? await this.prisma.users.findUnique({
+            where: { email: normalizedEmail },
+          })
         : null) ||
       (normalizedPhone
-        ? await this.prisma.users.findUnique({ where: { phone: normalizedPhone } })
+        ? await this.prisma.users.findUnique({
+            where: { phone: normalizedPhone },
+          })
         : null);
 
     if (existingUser) {
@@ -103,7 +128,10 @@ export class UsersService {
     }
 
     try {
-      const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+      const hashedPassword = await bcrypt.hash(
+        createUserDto.password,
+        SALT_ROUNDS,
+      );
 
       const user = await this.prisma.users.create({
         data: {
@@ -111,7 +139,10 @@ export class UsersService {
           email: normalizedEmail,
           phone: normalizedPhone,
           password: hashedPassword,
-          role: (createUserDto.role?.toString().toUpperCase() as any) ?? 'USER',
+          // Registration is public — privileged roles can never be
+          // self-assigned here. Admin/company accounts are provisioned
+          // through their own apps.
+          role: 'USER' as any,
         },
       });
 
@@ -137,26 +168,53 @@ export class UsersService {
     }
   }
 
-  async getUsers(): Promise<UserEntity[]> {
-    const users = await this.prisma.users.findMany();
-    return UserEntity.fromPrismaArray(users);
+  /** Returns only the requester's own record — never other users. */
+  async getUsers(requesterId: string): Promise<UserEntity[]> {
+    const users = await this.prisma.users.findMany({
+      where: { id: requesterId },
+      select: PUBLIC_USER_SELECT,
+    });
+    return users.map((u) => new UserEntity(u));
   }
 
+  /**
+   * Lookup restricted to the requester's own record. The controller only
+   * allows property in {id, email, phone}; the value must match the
+   * authenticated user's own value.
+   */
   async getUsersByProperty(
     property: string,
     value: string,
+    requesterId: string,
   ): Promise<UserEntity[]> {
-    const users = await this.prisma.users.findMany({
-      where: { [property]: value },
+    const own = await this.prisma.users.findUnique({
+      where: { id: requesterId },
+      select: PUBLIC_USER_SELECT,
     });
-    return UserEntity.fromPrismaArray(users);
+    if (!own) return [];
+    const matches =
+      (property === 'id' && value === own.id) ||
+      (property === 'email' &&
+        !!own.email &&
+        value.toLowerCase().trim() === own.email) ||
+      (property === 'phone' &&
+        !!own.phone &&
+        value.toLowerCase().trim() === own.phone);
+    return matches ? [new UserEntity(own)] : [];
   }
 
-  async getUser(property: string, value: string): Promise<UserEntity> {
-    const user: users | null = await this.prisma.users.findFirst({
-      where: { [property]: value },
-    });
-    return UserEntity.fromPrisma(user as users);
+  /** Lookup restricted to the requester's own record. */
+  async getUser(
+    property: string,
+    value: string,
+    requesterId: string,
+  ): Promise<UserEntity> {
+    const results = await this.getUsersByProperty(property, value, requesterId);
+    const user = results[0];
+    if (!user) {
+      throw new NotFoundException('المستخدم غير موجود');
+    }
+    return user;
   }
 
   // async search(query: string): Promise<UserEntity[]> {
@@ -210,7 +268,6 @@ export class UsersService {
         email?: string;
         phone?: string;
         password?: string;
-        role?: string;
         updatedAt?: Date;
       } = {};
 
@@ -221,11 +278,12 @@ export class UsersService {
       if (updateUserDto.phone !== undefined)
         updateData.phone = updateUserDto.phone.toLowerCase().trim();
       if (updateUserDto.password !== undefined) {
-        updateData.password = await bcrypt.hash(updateUserDto.password, 10);
+        updateData.password = await bcrypt.hash(
+          updateUserDto.password,
+          SALT_ROUNDS,
+        );
       }
-      if (updateUserDto.role !== undefined) {
-        updateData.role = updateUserDto.role;
-      }
+      // NOTE: `role` is intentionally not updatable through the customer app.
       updateData.updatedAt = new Date();
 
       const updatedUser = await this.prisma.users.update({

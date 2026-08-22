@@ -1,13 +1,40 @@
-import { Controller, Get, Param, Query, Res, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  Query,
+  Res,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '@app/prisma';
+import { UsersService } from '../users/service/users.service';
 import type { Response } from 'express';
+
+/** Escapes HTML-special characters in user-supplied values before they are
+ *  interpolated into the ticket template (stored-XSS defense). */
+function esc(value: unknown): string {
+  const raw =
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+      ? String(value)
+      : '';
+  return raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 @Controller('tickets')
 export class TicketsController {
   constructor(
     private readonly jwt: JwtService,
     private readonly prisma: PrismaService,
+    private readonly usersService: UsersService,
   ) {}
 
   @Get('html/:id')
@@ -25,6 +52,11 @@ export class TicketsController {
       throw new UnauthorizedException('Invalid or expired token');
     }
 
+    // Logged-out sessions must not keep serving tickets.
+    if (this.usersService.isTokenBlacklisted(token)) {
+      throw new UnauthorizedException('Invalid or expired token');
+    }
+
     const booking = await this.prisma.booking.findUnique({
       where: { id },
       include: {
@@ -35,22 +67,34 @@ export class TicketsController {
     });
 
     if (!booking) throw new NotFoundException('Booking not found');
-    if (booking.customerId !== payload.id) throw new UnauthorizedException('Not your ticket');
+    if (booking.customerId !== payload.id)
+      throw new UnauthorizedException('Not your ticket');
 
     const trip = booking.Trip;
     const bus = trip?.Bus;
     const payment = booking.Payment;
     const passengers = (booking.passenger ?? []) as any[];
-    const seatNumbers = (booking.seatNumbers ?? []) as number[];
+    const seatNumbers = booking.seatNumbers ?? [];
     const plate = bus?.plate ? (bus.plate as any) : null;
 
-    const fmt = (n: number) => String(n).replace(/[0-9]/g, d => '٠١٢٣٤٥٦٧٨٩'[+d]);
-    const dt = (d: any) => d ? new Date(d).toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : '—';
-    const tm = (t: any) => t ? t.slice(0, 5) : '—';
+    const fmt = (n: number) =>
+      String(n).replace(/[0-9]/g, (d) => '٠١٢٣٤٥٦٧٨٩'[+d]);
+    const dt = (d: any) =>
+      d
+        ? new Date(d).toLocaleDateString('ar-SA', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          })
+        : '—';
+    const tm = (t: any) => (t ? t.slice(0, 5) : '—');
 
     function duration(): string {
       if (!trip?.departureDate || !trip?.arrivalDate) return '—';
-      const diffMs = new Date(trip.arrivalDate).getTime() - new Date(trip.departureDate).getTime();
+      const diffMs =
+        new Date(trip.arrivalDate).getTime() -
+        new Date(trip.departureDate).getTime();
       if (diffMs <= 0) return '—';
       const hrs = Math.floor(diffMs / 3600000);
       const mins = Math.floor((diffMs % 3600000) / 60000);
@@ -59,9 +103,9 @@ export class TicketsController {
 
     function plateHtml(): string {
       if (!plate) return '<div class="value">—</div>';
-      const en = (plate.english || '').toUpperCase();
-      const ar = plate.arabic || '';
-      const num = plate.numbers || '';
+      const en = esc((plate.english || '').toUpperCase());
+      const ar = esc(plate.arabic || '');
+      const num = esc(plate.numbers || '');
       return `<div class="plate">
         <span class="plate-top">${en}</span>
         <span class="plate-num">${num}</span>
@@ -71,20 +115,32 @@ export class TicketsController {
 
     function passengersTable(): string {
       if (!passengers.length) return '<div class="muted">لا يوجد مسافرون</div>';
-      const rows = passengers.map((p: any, i: number) => {
-        const name = p.name || '—';
-        const seat = seatNumbers[i] ? fmt(seatNumbers[i]) : '—';
-        const age = p.age ? fmt(p.age) : '—';
-        const gender = p.gender === 'MALE' ? 'ذكر' : p.gender === 'FEMALE' ? 'أنثى' : '—';
-        return `<tr><td>${name}</td><td>${age}</td><td>${gender}</td><td class="ta-center">${seat}</td></tr>`;
-      }).join('');
+      const rows = passengers
+        .map((p: any, i: number) => {
+          const name = p.name ? esc(p.name) : '—';
+          const seat = seatNumbers[i] ? fmt(seatNumbers[i]) : '—';
+          const age = p.age ? fmt(p.age) : '—';
+          const gender =
+            p.gender === 'MALE' ? 'ذكر' : p.gender === 'FEMALE' ? 'أنثى' : '—';
+          return `<tr><td>${name}</td><td>${age}</td><td>${gender}</td><td class="ta-center">${seat}</td></tr>`;
+        })
+        .join('');
       return `<table class="passengers-table">
         <thead><tr><th>الاسم</th><th>العمر</th><th>الجنس</th><th class="ta-center">المقعد</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
     }
 
-    const orderId = booking.id.slice(0, 8).toUpperCase();
+    const orderId = esc(booking.id.slice(0, 8).toUpperCase());
+    const isPaid = payment?.status === 'SUCCESS';
+    const paymentBadge = isPaid
+      ? `<span class="badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          تم الدفع
+        </span>`
+      : payment
+        ? '<span class="badge badge-pending">بانتظار تأكيد الدفع</span>'
+        : '';
 
     const html = `<!DOCTYPE html>
 <html dir="rtl" lang="ar">
@@ -200,6 +256,10 @@ export class TicketsController {
     color: #0D9488;
   }
   .badge svg { width: 14px; height: 14px; }
+  .badge-pending {
+    background: #FEF3C7;
+    color: #B45309;
+  }
 
   .notice {
     background: #CCFBF1;
@@ -229,8 +289,8 @@ export class TicketsController {
       <div class="info-row">
         <div class="info-col info-col-r">
           <div class="info-label">المغادرة</div>
-          <div class="info-val">${trip?.fromCity || '—'}</div>
-          <div class="info-sub">${trip?.fromState || ''} ${trip?.fromStation || ''}</div>
+          <div class="info-val">${esc(trip?.fromCity) || '—'}</div>
+          <div class="info-sub">${esc(trip?.fromState)} ${esc(trip?.fromStation)}</div>
           <div class="info-sub">${dt(trip?.departureDate)}</div>
           <div class="info-sub" style="font-weight:600;color:#134E4A">${tm(trip?.departureTime)}</div>
         </div>
@@ -240,15 +300,17 @@ export class TicketsController {
         </div>
         <div class="info-col info-col-l">
           <div class="info-label">الوصول</div>
-          <div class="info-val">${trip?.toCity || '—'}</div>
-          <div class="info-sub">${trip?.toState || ''} ${trip?.toStation || ''}</div>
+          <div class="info-val">${esc(trip?.toCity) || '—'}</div>
+          <div class="info-sub">${esc(trip?.toState)} ${esc(trip?.toStation)}</div>
           <div class="info-sub">${dt(trip?.arrivalDate)}</div>
           <div class="info-sub" style="font-weight:600;color:#134E4A">${tm(trip?.arrivalTime)}</div>
         </div>
       </div>
     </div>
 
-    ${bus ? `
+    ${
+      bus
+        ? `
     <div class="section">
       <div class="section-title">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0D9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18" r="2.5"/><circle cx="18.5" cy="18" r="2.5"/></svg>
@@ -259,7 +321,9 @@ export class TicketsController {
         ${plateHtml()}
       </div>
     </div>
-    ` : ''}
+    `
+        : ''
+    }
 
     <div class="section">
       <div class="section-title">
@@ -269,17 +333,21 @@ export class TicketsController {
       ${passengersTable()}
     </div>
 
-    ${payment ? `
+    ${
+      payment
+        ? `
     <div class="section">
       <div class="section-title">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0D9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
         تفاصيل الدفع
       </div>
-      <div class="pay-row"><span class="pay-label">طريقة الدفع</span><span class="pay-value">${payment.paymentMethod || '—'}</span></div>
+      <div class="pay-row"><span class="pay-label">طريقة الدفع</span><span class="pay-value">${esc(payment.paymentMethod) || '—'}</span></div>
       <hr class="pay-hr">
       <div class="pay-row"><span class="pay-label">المدفوع</span><span class="pay-amount">${fmt(Math.round(Number(payment.totalAmount) || 0))} ج</span></div>
     </div>
-    ` : ''}
+    `
+        : ''
+    }
 
     <div class="section">
       <div class="notice">
@@ -289,10 +357,7 @@ export class TicketsController {
     </div>
 
     <div style="display:flex;justify-content:center;margin-top:4px">
-      <span class="badge">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-        تم الدفع
-      </span>
+      ${paymentBadge}
     </div>
   </div>
 </div>
@@ -300,6 +365,7 @@ export class TicketsController {
 </html>`;
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
     res.send(html);
   }
 }

@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   Logger,
 } from '@nestjs/common';
 import { Prisma } from '@app/prisma';
@@ -19,6 +20,41 @@ import { NotificationsService } from '../../notifications/notifications.service'
 
 const SEAT_LOCK_TTL = 420;
 
+/** Hard cap on seats per booking/lock request — prevents abuse of the
+ *  seat-holding mechanism even before bus capacity is known. */
+const MAX_SEATS_PER_REQUEST = 20;
+
+/** Properties a customer may filter bookings/payments by. */
+const FILTERABLE_PROPERTIES = ['id', 'customerId', 'tripId', 'status'] as const;
+
+function sanitizeSeats(raw: unknown): number[] {
+  if (!Array.isArray(raw)) {
+    throw new BadRequestException('يجب اختيار مقعد واحد على الأقل');
+  }
+  const seats = [
+    ...new Set(
+      raw.map((s) => Number(s)).filter((n) => Number.isInteger(n) && n >= 1),
+    ),
+  ];
+  if (seats.length === 0) {
+    throw new BadRequestException('يجب اختيار مقعد واحد على الأقل');
+  }
+  if (seats.length > MAX_SEATS_PER_REQUEST) {
+    throw new BadRequestException(
+      `لا يمكن حجز أكثر من ${MAX_SEATS_PER_REQUEST} مقاعد في الحجز الواحد`,
+    );
+  }
+  return seats;
+}
+
+function assertFilterableProperties(properties: string[]): void {
+  for (const p of properties) {
+    if (!(FILTERABLE_PROPERTIES as readonly string[]).includes(p)) {
+      throw new ForbiddenException('خاصية البحث غير مسموح بها');
+    }
+  }
+}
+
 @Injectable()
 export class BookingService {
   private readonly logger = new Logger(BookingService.name);
@@ -31,98 +67,136 @@ export class BookingService {
     private readonly notifications: NotificationsService,
   ) {}
 
+  /**
+   * Serializes all booking creation per trip so two concurrent requests can
+   * never pass the availability check simultaneously (double-booking race).
+   */
+  private async lockTrip(
+    tx: {
+      $queryRaw: (
+        query: TemplateStringsArray,
+        ...values: any[]
+      ) => Promise<any>;
+    },
+    tripId: string,
+  ): Promise<void> {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${tripId}))`;
+  }
+
   async create(createBookingDto: CreateBookingDto, customerId: string) {
     try {
-      this.logger.log('Creating booking: ' + JSON.stringify(createBookingDto));
-      const trip = await this.prisma.trip.findUnique({
-        where: { id: createBookingDto.tripId },
-      });
+      const sanitizedSeats = sanitizeSeats(createBookingDto.seatNumbers);
 
-      if (!trip) {
-        throw new NotFoundException('الرحلة غير موجودة');
-      }
+      const result = await this.prisma.$transaction(async (tx: any) => {
+        await this.lockTrip(tx, createBookingDto.tripId);
 
-      if (
-        !Array.isArray(createBookingDto.seatNumbers) ||
-        createBookingDto.seatNumbers.length === 0
-      ) {
-        throw new BadRequestException('يجب اختيار مقعد واحد على الأقل');
-      }
+        const trip = await tx.trip.findUnique({
+          where: { id: createBookingDto.tripId },
+          include: { Bus: true },
+        });
 
-      const sanitizedSeats = createBookingDto.seatNumbers.map(Number);
+        if (!trip) {
+          throw new NotFoundException('الرحلة غير موجودة');
+        }
 
-      const existingBooking = await this.prisma.booking.findFirst({
-        where: {
-          tripId: createBookingDto.tripId,
-          seatNumbers: {
-            hasSome: sanitizedSeats,
+        if (
+          trip.Bus &&
+          Number.isFinite(trip.Bus.chairs) &&
+          sanitizedSeats.some((s) => s > trip.Bus.chairs)
+        ) {
+          throw new BadRequestException('رقم المقعد غير صالح لهذه الحافلة');
+        }
+
+        const existingBooking = await tx.booking.findFirst({
+          where: {
+            tripId: createBookingDto.tripId,
+            seatNumbers: {
+              hasSome: sanitizedSeats,
+            },
+            status: {
+              in: [BookingStatus.PENDING, BookingStatus.CONFIRMED],
+            },
           },
-          status: {
-            in: [BookingStatus.PENDING, BookingStatus.CONFIRMED],
+        });
+
+        if (existingBooking) {
+          throw new BadRequestException('هذا المقعد محجوز بالفعل');
+        }
+
+        const blockedSeats = await this.getBlockedSeatsFromRedis(
+          createBookingDto.tripId,
+        );
+        const hasBlocked = sanitizedSeats.some((s) => blockedSeats.includes(s));
+        if (hasBlocked) {
+          throw new BadRequestException('هذا المقعد محجوز بالفعل');
+        }
+
+        const passengerData = (createBookingDto.passenger ?? [])
+          .filter(
+            (p: any) =>
+              p && p.name && p.name !== '' && p.age != null && p.gender,
+          )
+          .map((p: any) => ({
+            name: String(p.name),
+            age: Number(p.age),
+            gender: String(p.gender),
+          }));
+
+        // Status is always PENDING on creation — confirmation happens only
+        // after payment verification by an administrator.
+        const booking = await tx.booking.create({
+          data: {
+            tripId: createBookingDto.tripId,
+            seatNumbers: sanitizedSeats,
+            customerId: customerId,
+            passenger: passengerData as any,
+            passengerContact: createBookingDto.passengerContact,
+            status: BookingStatus.PENDING,
           },
-        },
-      });
+          include: {
+            Trip: true,
+            Payment: true,
+            TicketPDF: true,
+          },
+        });
 
-      if (existingBooking) {
-        throw new BadRequestException('هذا المقعد محجوز بالفعل');
-      }
+        const tripPrice = Number(trip.price ?? 0);
+        const seatCount = sanitizedSeats.length;
+        const baseAmount = tripPrice * seatCount;
 
-      const blockedSeats = await this.getBlockedSeatsFromRedis(createBookingDto.tripId);
-      const hasBlocked = sanitizedSeats.some((s) => blockedSeats.includes(s));
-      if (hasBlocked) {
-        throw new BadRequestException('هذا المقعد محجوز بالفعل');
-      }
+        const activeFee = await tx.platformFee.findFirst({
+          where: { isActive: true },
+          orderBy: { createdAt: 'desc' },
+        });
 
-      const passengerData = (createBookingDto.passenger ?? [])
-        .filter((p: any) => p && p.name && p.name !== '' && p.age != null && p.gender)
-        .map((p: any) => ({ name: String(p.name), age: Number(p.age), gender: String(p.gender) }));
+        const platformFeeRate = activeFee ? Number(activeFee.percentage) : 0;
+        const platformFeeAmount =
+          Math.round(baseAmount * platformFeeRate) / 100;
+        const totalAmount = baseAmount;
 
-      const booking = await this.prisma.booking.create({
-        data: {
-          tripId: createBookingDto.tripId,
-          seatNumbers: sanitizedSeats,
-          customerId: customerId,
-          passenger: passengerData as any,
-          passengerContact: createBookingDto.passengerContact,
-          status: createBookingDto.status,
-        },
-        include: {
-          Trip: true,
-          Payment: true,
-          TicketPDF: true,
-        },
+        return {
+          booking,
+          _pricing: {
+            tripPrice,
+            seatCount,
+            baseAmount,
+            platformFeeAmount,
+            platformFeeLabel: activeFee?.label || 'رسوم المنصة',
+            platformFeeRate,
+            totalAmount,
+            currency: 'جنيه',
+          },
+        };
       });
 
       this.wsGateway.emitToCustomer(customerId, WS_EVENTS.BOOKING_CREATED, {
-        bookingId: booking.id,
-        status: booking.status,
+        bookingId: result.booking.id,
+        status: result.booking.status,
       });
-
-      const tripPrice = Number(trip.price ?? 0);
-      const seatCount = sanitizedSeats.length;
-      const baseAmount = tripPrice * seatCount;
-
-      const activeFee = await this.prisma.platformFee.findFirst({
-        where: { isActive: true },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      const platformFeeRate = activeFee ? Number(activeFee.percentage) : 0;
-      const platformFeeAmount = Math.round(baseAmount * platformFeeRate) / 100;
-      const totalAmount = baseAmount;
 
       return {
-        ...(booking as any),
-        _pricing: {
-          tripPrice,
-          seatCount,
-          baseAmount,
-          platformFeeAmount,
-          platformFeeLabel: activeFee?.label || 'رسوم المنصة',
-          platformFeeRate,
-          totalAmount,
-          currency: trip.price ? 'جنيه' : 'جنيه',
-        },
+        ...result.booking,
+        _pricing: result._pricing,
       };
     } catch (error) {
       if (error instanceof Prisma.PrismaClientValidationError) {
@@ -159,11 +233,8 @@ export class BookingService {
           dto.passenger = [];
         }
       }
-      if (!Array.isArray(dto.seatNumbers) || dto.seatNumbers.length === 0) {
-        throw new BadRequestException('يجب اختيار مقعد واحد على الأقل');
-      }
 
-      const sanitizedSeats = dto.seatNumbers.map(Number);
+      const sanitizedSeats = sanitizeSeats(dto.seatNumbers);
 
       const blocked = await this.getBlockedSeatsFromRedis(dto.tripId);
       const hasBlocked = sanitizedSeats.some((s) => blocked.includes(s));
@@ -171,13 +242,24 @@ export class BookingService {
         throw new BadRequestException('هذا المقعد محجوز بالفعل');
       }
 
-      const result = await this.prisma.$transaction(async (tx) => {
+      const result = await this.prisma.$transaction(async (tx: any) => {
+        await this.lockTrip(tx, dto.tripId);
+
         const trip = await tx.trip.findUnique({
           where: { id: dto.tripId },
+          include: { Bus: true },
         });
 
         if (!trip) {
           throw new NotFoundException('الرحلة غير موجودة');
+        }
+
+        if (
+          trip.Bus &&
+          Number.isFinite(trip.Bus.chairs) &&
+          sanitizedSeats.some((s) => s > trip.Bus.chairs)
+        ) {
+          throw new BadRequestException('رقم المقعد غير صالح لهذه الحافلة');
         }
 
         const existingBooking = await tx.booking.findFirst({
@@ -197,8 +279,15 @@ export class BookingService {
         const baseAmount = tripPrice * seatCount;
 
         const passengerData = (dto.passenger ?? [])
-          .filter((p: any) => p && p.name && p.name !== '' && p.age != null && p.gender)
-          .map((p: any) => ({ name: String(p.name), age: Number(p.age), gender: String(p.gender) }));
+          .filter(
+            (p: any) =>
+              p && p.name && p.name !== '' && p.age != null && p.gender,
+          )
+          .map((p: any) => ({
+            name: String(p.name),
+            age: Number(p.age),
+            gender: String(p.gender),
+          }));
 
         const booking = await tx.booking.create({
           data: {
@@ -211,32 +300,20 @@ export class BookingService {
           },
         });
 
-        const activeFee = await this.prisma.platformFee.findFirst({
+        const activeFee = await tx.platformFee.findFirst({
           where: { isActive: true },
           orderBy: { createdAt: 'desc' },
         });
 
         const platformFeeRate = activeFee ? Number(activeFee.percentage) : 0;
-        const platformFeeAmount = Math.round(baseAmount * platformFeeRate) / 100;
+        const platformFeeAmount =
+          Math.round(baseAmount * platformFeeRate) / 100;
         const serverCompanyAmount = baseAmount - platformFeeAmount;
         const serverTotalAmount = baseAmount;
 
-        if (
-          dto.companyAmount !== undefined &&
-          dto.companyAmount !== serverCompanyAmount
-        ) {
-          this.logger.warn(
-            `companyAmount mismatch: DTO sent ${dto.companyAmount}, server calculated ${serverCompanyAmount}`,
-          );
-        }
-        if (
-          dto.totalAmount !== undefined &&
-          dto.totalAmount !== serverTotalAmount
-        ) {
-          this.logger.warn(
-            `totalAmount mismatch: DTO sent ${dto.totalAmount}, server calculated ${serverTotalAmount}`,
-          );
-        }
+        // All financial figures are derived server-side. Client-sent amounts
+        // are ignored; commission mirrors the platform fee so that
+        // companyAmount == totalAmount - commissionAmount always holds.
 
         const payment = await tx.payment.create({
           data: {
@@ -245,7 +322,7 @@ export class BookingService {
             price: tripPrice,
             totalAmount: serverTotalAmount,
             companyAmount: serverCompanyAmount,
-            commissionAmount: dto.commissionAmount,
+            commissionAmount: platformFeeAmount,
             platformFeeAmount,
             currency: dto.currency || 'SDG',
             status: PaymentStatus.PENDING,
@@ -337,6 +414,7 @@ export class BookingService {
 
       const ticket = await this.paymentService.generateTicket(
         result.booking,
+        result.payment,
       );
 
       await this.clearSeatLocksOnBooking(customerId, dto.tripId);
@@ -379,7 +457,9 @@ export class BookingService {
     const activeBookings = bookings.filter(
       (b: any) => b.status === BookingStatus.CONFIRMED || b.Payment,
     );
-    const bookedSeats = activeBookings.flatMap((booking: any) => booking.seatNumbers);
+    const bookedSeats = activeBookings.flatMap(
+      (booking: any) => booking.seatNumbers,
+    );
 
     const heldSeats = await this.getHeldSeatsFromRedis(tripId);
 
@@ -410,7 +490,9 @@ export class BookingService {
             if (Array.isArray(data.seats)) {
               seats.push(...data.seats);
             }
-          } catch {}
+          } catch {
+            // Skip malformed session entries.
+          }
         }
       }
       return [...new Set(seats)];
@@ -424,6 +506,7 @@ export class BookingService {
     tripId: string,
     seats: number[],
   ): Promise<{ expiresAt: number }> {
+    const sanitized = sanitizeSeats(seats);
     const expiresAt = Date.now() + SEAT_LOCK_TTL * 1000;
     const key = `booking-session:${customerId}:${tripId}`;
     const existing = await this.redis.get(key);
@@ -431,9 +514,11 @@ export class BookingService {
     if (existing) {
       try {
         data = JSON.parse(existing);
-      } catch {}
+      } catch {
+        // Corrupted session entry — start from a fresh session object.
+      }
     }
-    data.seats = seats;
+    data.seats = sanitized;
     data.expiresAt = expiresAt;
     await this.redis.setex(key, SEAT_LOCK_TTL, JSON.stringify(data));
     return { expiresAt };
@@ -485,12 +570,17 @@ export class BookingService {
     }
   }
 
-  async clearSeatLocksOnBooking(customerId: string, tripId: string): Promise<void> {
+  async clearSeatLocksOnBooking(
+    customerId: string,
+    tripId: string,
+  ): Promise<void> {
     await this.unlockSeats(customerId, tripId);
   }
 
-  async getBookings() {
+  /** Only the requesting customer's bookings are returned. */
+  async getBookings(customerId: string) {
     return this.prisma.booking.findMany({
+      where: { customerId },
       include: {
         Trip: { include: { Bus: true } },
         Payment: true,
@@ -500,14 +590,19 @@ export class BookingService {
     });
   }
 
+  /** Filterable properties are allowlisted and results are always scoped to
+   *  the requesting customer, whatever values were supplied. */
   async getBookingsByProperties(
     property1: string,
     value1: string,
     property2: string,
     value2: string,
+    customerId: string,
   ) {
+    assertFilterableProperties([property1, property2]);
     return this.prisma.booking.findMany({
       where: {
+        customerId,
         AND: [{ [property1]: value1 }, { [property2]: value2 }],
       },
       include: {
@@ -519,8 +614,13 @@ export class BookingService {
     });
   }
 
-  async getBookingsByProperty(property: string, value: string) {
-    const whereClause: any = {};
+  async getBookingsByProperty(
+    property: string,
+    value: string,
+    customerId: string,
+  ) {
+    assertFilterableProperties([property]);
+    const whereClause: any = { customerId };
     whereClause[property] = value;
 
     return this.prisma.booking.findMany({
@@ -534,8 +634,9 @@ export class BookingService {
     });
   }
 
-  async getBooking(property: string, value: string) {
-    const whereClause: any = {};
+  async getBooking(property: string, value: string, customerId: string) {
+    assertFilterableProperties([property]);
+    const whereClause: any = { customerId };
     whereClause[property] = value;
 
     const booking = await this.prisma.booking.findFirst({
@@ -559,9 +660,12 @@ export class BookingService {
     value1: string,
     property2: string,
     value2: string,
+    customerId: string,
   ) {
+    assertFilterableProperties([property1, property2]);
     const booking = await this.prisma.booking.findFirst({
       where: {
+        customerId,
         AND: [{ [property1]: value1 }, { [property2]: value2 }],
       },
       include: {
@@ -578,8 +682,13 @@ export class BookingService {
     return booking;
   }
 
-  async update(id: string, updateBookingDto: UpdateBookingDto) {
-    // Check if booking exists
+  /** Customers may only edit their own bookings and only passenger data —
+   *  ownership, trip, seats and status are not writable here. */
+  async update(
+    id: string,
+    updateBookingDto: UpdateBookingDto,
+    customerId: string,
+  ) {
     const existingBooking = await this.prisma.booking.findUnique({
       where: { id },
     });
@@ -588,47 +697,23 @@ export class BookingService {
       throw new NotFoundException('الحجز غير موجود');
     }
 
-    // If updating seatNumbers, check if new seat is already booked for this trip
-    if (updateBookingDto.seatNumbers && updateBookingDto.tripId) {
-      const conflictingBooking = await this.prisma.booking.findFirst({
-        where: {
-          id: { not: id },
-          tripId: updateBookingDto.tripId,
-          seatNumbers: {
-            hasSome: updateBookingDto.seatNumbers, // ✅ Check for overlapping seats
-          },
-          status: {
-            in: [BookingStatus.PENDING, BookingStatus.CONFIRMED],
-          },
-        },
-      });
-
-      if (conflictingBooking) {
-        throw new BadRequestException('المقعد محجوز بالفعل');
-      }
+    if (existingBooking.customerId !== customerId) {
+      throw new ForbiddenException('لا يمكنك تعديل حجز مستخدم آخر');
     }
 
     const updateData: {
       passenger?: any;
-      customerId?: string;
-      tripId?: string;
-      seatNumbers?: number[];
       passengerContact?: string;
-      status?: BookingStatus;
     } = {};
 
     if (updateBookingDto.passenger !== undefined)
       updateData.passenger = updateBookingDto.passenger;
-    if (updateBookingDto.customerId !== undefined)
-      updateData.customerId = updateBookingDto.customerId;
-    if (updateBookingDto.tripId !== undefined)
-      updateData.tripId = updateBookingDto.tripId;
-    if (updateBookingDto.seatNumbers !== undefined)
-      updateData.seatNumbers = updateBookingDto.seatNumbers;
     if (updateBookingDto.passengerContact !== undefined)
       updateData.passengerContact = updateBookingDto.passengerContact;
-    if (updateBookingDto.status !== undefined)
-      updateData.status = updateBookingDto.status;
+
+    if (Object.keys(updateData).length === 0) {
+      throw new BadRequestException('لا توجد بيانات قابلة للتعديل');
+    }
 
     const updatedBooking = await this.prisma.booking.update({
       where: { id },
@@ -664,7 +749,9 @@ export class BookingService {
     });
   }
 
-  async delete(id: string) {
+  /** Owners may delete their own bookings (releases seats); other users'
+   *  bookings are protected. */
+  async delete(id: string, customerId: string) {
     const existingBooking = await this.prisma.booking.findUnique({
       where: { id },
     });
@@ -673,14 +760,22 @@ export class BookingService {
       throw new NotFoundException('الحجز غير موجود');
     }
 
+    if (existingBooking.customerId !== customerId) {
+      throw new ForbiddenException('لا يمكنك حذف حجز مستخدم آخر');
+    }
+
     await this.prisma.booking.delete({
       where: { id },
     });
 
-    this.wsGateway.emitToCustomer(existingBooking.customerId, WS_EVENTS.BOOKING_CANCELLED, {
-      bookingId: id,
-      status: 'CANCELLED',
-    });
+    this.wsGateway.emitToCustomer(
+      existingBooking.customerId,
+      WS_EVENTS.BOOKING_CANCELLED,
+      {
+        bookingId: id,
+        status: 'CANCELLED',
+      },
+    );
     this.wsGateway.emitSeatUpdate(existingBooking.tripId, {
       seatNumbers: existingBooking.seatNumbers,
       action: 'released',
