@@ -19,21 +19,23 @@ export enum SeatStartFrom {
 }
 
 export class PlateDto {
-  @ApiProperty({ description: 'رقم اللوحة بالعربية' })
+  @ApiProperty({ description: 'رقم اللوحة بالعربية', required: false })
+  @IsOptional()
   @IsString({ message: 'رقم اللوحة بالعربية مطلوب' })
   @IsNotEmpty({ message: 'رقم اللوحة بالعربية لا يمكن أن يكون فارغاً' })
   @Matches(/^[\u0600-\u06FF\s\d]+$/, {
     message: 'يجب أن يحتوي رقم اللوحة بالعربية على أحرف عربية وأرقام فقط',
   })
-  arabic: string;
+  arabic?: string;
 
-  @ApiProperty({ description: 'رقم اللوحة بالإنجليزية' })
+  @ApiProperty({ description: 'رقم اللوحة بالإنجليزية', required: false })
+  @IsOptional()
   @IsString({ message: 'رقم اللوحة بالإنجليزية مطلوب' })
   @IsNotEmpty({ message: 'رقم اللوحة بالإنجليزية لا يمكن أن يكون فارغاً' })
   @Matches(/^[A-Za-z\s\d]+$/, {
     message: 'يجب أن يحتوي رقم اللوحة بالإنجليزية على أحرف إنجليزية وأرقام فقط',
   })
-  english: string;
+  english?: string;
 
   @ApiProperty({ description: 'أرقام اللوحة' })
   @IsNotEmpty({ message: 'أرقام اللوحة لا يمكن أن تكون فارغة' })
