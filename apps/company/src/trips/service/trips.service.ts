@@ -158,6 +158,7 @@ export class TripsService {
     if (status) where.status = status;
     return this.prisma.trip.findMany({
       where,
+      orderBy: { createdAt: 'desc' },
       include: {
         Bus: true,
         Booking: {
