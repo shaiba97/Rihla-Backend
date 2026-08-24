@@ -1,4 +1,13 @@
-import { Controller, Get, Patch, Delete, Param, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Patch,
+  Delete,
+  Param,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { NotificationsService } from './notifications.service';
@@ -28,13 +37,15 @@ export class NotificationsController {
     return this.svc.markAllRead((req as any).user.id);
   }
 
-  @Delete(':id')
-  remove(@Param('id') id: string, @Req() req: Request) {
-    return this.svc.remove(id, (req as any).user.id);
-  }
-
+  // Static routes must be declared BEFORE parameterized ones, otherwise
+  // "clear-all" is captured by @Delete(':id').
   @Delete('clear-all')
   clearAll(@Req() req: Request) {
     return this.svc.clearAll((req as any).user.id);
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string, @Req() req: Request) {
+    return this.svc.remove(id, (req as any).user.id);
   }
 }

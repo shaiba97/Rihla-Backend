@@ -15,10 +15,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(req: Request, payload: any) {
+  validate(req: Request, payload: any) {
     const token = ExtractJwt.fromAuthHeaderAsBearerToken()(req);
     if (token && this.usersService.isTokenBlacklisted(token)) {
-      throw new UnauthorizedException('انتهت جلسة تسجيل الدخول — يرجى تسجيل الدخول مجدداً');
+      throw new UnauthorizedException(
+        'انتهت جلسة تسجيل الدخول — يرجى تسجيل الدخول مجدداً',
+      );
+    }
+    // All three apps share one JWT secret and one users table, so a token
+    // minted by the customer or company app verifies here too. Admin API
+    // access must therefore be gated on the role inside the payload.
+    if (payload?.role !== 'ADMIN') {
+      throw new UnauthorizedException('هذه اللوحة مخصصة للمشرفين فقط');
     }
     return payload;
   }

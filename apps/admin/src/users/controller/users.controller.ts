@@ -45,9 +45,14 @@ export class UsersController {
     return { data: user };
   }
 
+  /**
+   * Account creation for the admin panel (admins assign roles by design).
+   * Requires an authenticated ADMIN — anonymous account creation is closed.
+   */
   @Post('post-user')
+  @UseGuards(AuthGuard('jwt'))
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Create a new user' })
+  @ApiOperation({ summary: 'Create a new user (ADMIN only)' })
   @ApiResponse({
     status: 201,
     description: 'User created successfully',
@@ -57,8 +62,10 @@ export class UsersController {
     return this.usersService.create(createUserDto);
   }
 
+  /** User listing is an admin-panel capability and requires authentication. */
   @Get('get-users')
-  @ApiOperation({ summary: 'Get all users' })
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Get all users (ADMIN only)' })
   @ApiResponse({
     status: 200,
     description: 'Users retrieved successfully',
@@ -69,7 +76,8 @@ export class UsersController {
   }
 
   @Get('get-users/property/:property/value/:value')
-  @ApiOperation({ summary: 'Get all users by property and value' })
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Get all users by property and value (ADMIN only)' })
   @ApiResponse({
     status: 200,
     description: 'Users retrieved successfully',
@@ -83,7 +91,8 @@ export class UsersController {
   }
 
   @Get('get-user/property/:property/value/:value')
-  @ApiOperation({ summary: 'Get user by property and value' })
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Get user by property and value (ADMIN only)' })
   @ApiResponse({
     status: 200,
     description: 'User retrieved successfully',
@@ -97,7 +106,8 @@ export class UsersController {
   }
 
   @Put('update-user/:id')
-  @ApiOperation({ summary: 'Update user' })
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Update user (ADMIN only)' })
   @ApiResponse({
     status: 200,
     description: 'User updated successfully',
@@ -108,8 +118,9 @@ export class UsersController {
   }
 
   @Delete('delete-user/:id')
+  @UseGuards(AuthGuard('jwt'))
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Delete user' })
+  @ApiOperation({ summary: 'Delete user (ADMIN only)' })
   @ApiResponse({ status: 200, description: 'User deleted successfully' })
   async remove(@Param('id') id: string) {
     return this.usersService.remove(id);

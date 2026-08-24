@@ -7,6 +7,7 @@ import { TripSchedulerService } from './service/trip-scheduler.service';
 import { PrismaModule } from '@app/prisma';
 import { RedisModule } from '@app/redis';
 import { PdfModule } from '@app/pdf';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { PdfModule } from '@app/pdf';
     ScheduleModule.forRoot(),
     RedisModule,
     PdfModule,
+    UsersModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET!,
       signOptions: { expiresIn: '7d' },

@@ -8,6 +8,8 @@ import * as bcrypt from 'bcrypt';
 
 const tokenBlacklist = new Set<string>();
 
+const SALT_ROUNDS = 12;
+
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
@@ -19,7 +21,10 @@ export class UsersService {
   async validateUser(
     identifier: string,
     password: string,
-  ): Promise<{ user: UserWithoutPassword } | { reason: 'identifier-not-found' | 'password-wrong' }> {
+  ): Promise<
+    | { user: UserWithoutPassword }
+    | { reason: 'identifier-not-found' | 'password-wrong' }
+  > {
     const normalized = identifier.toLowerCase().trim();
 
     const user =
@@ -80,7 +85,8 @@ export class UsersService {
     if (!createUserDto || (!createUserDto.email && !createUserDto.phone)) {
       return {
         success: false,
-        message: 'بيانات المستخدم غير صالحة - البريد الإلكتروني أو الهاتف مطلوب',
+        message:
+          'بيانات المستخدم غير صالحة - البريد الإلكتروني أو الهاتف مطلوب',
       };
     }
 
@@ -89,10 +95,14 @@ export class UsersService {
 
     const existingUser =
       (normalizedEmail
-        ? await this.prisma.users.findUnique({ where: { email: normalizedEmail } })
+        ? await this.prisma.users.findUnique({
+            where: { email: normalizedEmail },
+          })
         : null) ||
       (normalizedPhone
-        ? await this.prisma.users.findUnique({ where: { phone: normalizedPhone } })
+        ? await this.prisma.users.findUnique({
+            where: { phone: normalizedPhone },
+          })
         : null);
 
     if (existingUser) {
@@ -103,7 +113,10 @@ export class UsersService {
     }
 
     try {
-      const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+      const hashedPassword = await bcrypt.hash(
+        createUserDto.password,
+        SALT_ROUNDS,
+      );
 
       const user = await this.prisma.users.create({
         data: {
@@ -221,7 +234,10 @@ export class UsersService {
       if (updateUserDto.phone !== undefined)
         updateData.phone = updateUserDto.phone.toLowerCase().trim();
       if (updateUserDto.password !== undefined) {
-        updateData.password = await bcrypt.hash(updateUserDto.password, 10);
+        updateData.password = await bcrypt.hash(
+          updateUserDto.password,
+          SALT_ROUNDS,
+        );
       }
       if (updateUserDto.role !== undefined) {
         updateData.role = updateUserDto.role;

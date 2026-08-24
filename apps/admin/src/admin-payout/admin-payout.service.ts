@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { PrismaService } from '@app/prisma';
 import { TafiyaWsGateway, WS_EVENTS } from '@app/websocket';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -21,7 +26,10 @@ export class AdminPayoutService {
           include: {
             Trip: {
               include: {
-                Booking: { where: { status: 'CONFIRMED' }, include: { Payment: true } },
+                Booking: {
+                  where: { status: 'CONFIRMED' },
+                  include: { Payment: true },
+                },
                 PayoutRecordItem: true,
               },
             },
@@ -32,27 +40,29 @@ export class AdminPayoutService {
     });
 
     return {
-      data: companies.map(c => {
-        let unpaidAmount = 0;
-        for (const bus of c.Bus) {
-          for (const trip of bus.Trip) {
-            if (trip.PayoutRecordItem.length > 0) continue;
-            for (const b of trip.Booking) {
-              unpaidAmount += Number(b.Payment?.companyAmount ?? 0);
+      data: companies
+        .map((c) => {
+          let unpaidAmount = 0;
+          for (const bus of c.Bus) {
+            for (const trip of bus.Trip) {
+              if (trip.PayoutRecordItem.length > 0) continue;
+              for (const b of trip.Booking) {
+                unpaidAmount += Number(b.Payment?.companyAmount ?? 0);
+              }
             }
           }
-        }
-        return {
-          id: c.id,
-          name: c.name,
-          email: c.email,
-          phone: c.phone,
-          unpaidAmount: Math.round(unpaidAmount),
-          accountHolderName: c.CompanyBankAccount?.accountHolderName ?? null,
-          bankName: c.CompanyBankAccount?.bankName ?? null,
-          accountNumber: c.CompanyBankAccount?.accountNumber ?? null,
-        };
-      }).filter(c => c.unpaidAmount > 0),
+          return {
+            id: c.id,
+            name: c.name,
+            email: c.email,
+            phone: c.phone,
+            unpaidAmount: Math.round(unpaidAmount),
+            accountHolderName: c.CompanyBankAccount?.accountHolderName ?? null,
+            bankName: c.CompanyBankAccount?.bankName ?? null,
+            accountNumber: c.CompanyBankAccount?.accountNumber ?? null,
+          };
+        })
+        .filter((c) => c.unpaidAmount > 0),
     };
   }
 
@@ -67,28 +77,36 @@ export class AdminPayoutService {
     });
 
     return {
-      data: trips.map(t => {
-        let unpaidAmount = 0;
-        if (t.PayoutRecordItem.length === 0) {
-          for (const b of t.Booking) {
-            unpaidAmount += Number(b.Payment?.companyAmount ?? 0);
+      data: trips
+        .map((t) => {
+          let unpaidAmount = 0;
+          if (t.PayoutRecordItem.length === 0) {
+            for (const b of t.Booking) {
+              unpaidAmount += Number(b.Payment?.companyAmount ?? 0);
+            }
           }
-        }
-        return {
-          id: t.id,
-          fromCity: t.fromCity,
-          toCity: t.toCity,
-          departureDate: t.departureDate,
-          departureTime: t.departureTime,
-          unpaidAmount: Math.round(unpaidAmount),
-          route: `${t.fromCity} → ${t.toCity}`,
-        };
-      }).filter(t => t.unpaidAmount > 0),
+          return {
+            id: t.id,
+            fromCity: t.fromCity,
+            toCity: t.toCity,
+            departureDate: t.departureDate,
+            departureTime: t.departureTime,
+            unpaidAmount: Math.round(unpaidAmount),
+            route: `${t.fromCity} → ${t.toCity}`,
+          };
+        })
+        .filter((t) => t.unpaidAmount > 0),
     };
   }
 
-  async payTrip(tripId: string, receipt?: { receiptFile?: string; receiptData?: string; receiptMime?: string }) {
-    const receiptFile = receipt?.receiptFile;
+  async payTrip(
+    tripId: string,
+    receipt?: {
+      receiptFile?: string;
+      receiptData?: string;
+      receiptMime?: string;
+    },
+  ) {
     const trip = await this.prisma.trip.findUnique({
       where: { id: tripId },
       include: {
@@ -98,26 +116,50 @@ export class AdminPayoutService {
       },
     });
     if (!trip) throw new NotFoundException('الرحلة غير موجودة');
-    if (trip.PayoutRecordItem.length > 0) throw new BadRequestException('الرحلة مدفوعة مسبقاً');
+    if (trip.PayoutRecordItem.length > 0)
+      throw new BadRequestException('الرحلة مدفوعة مسبقاً');
 
     let totalAmount = 0;
     for (const b of trip.Booking) {
       totalAmount += Number(b.Payment?.companyAmount ?? 0);
     }
-    if (totalAmount <= 0) throw new BadRequestException('لا توجد مستحقات لهذه الرحلة');
+    if (totalAmount <= 0)
+      throw new BadRequestException('لا توجد مستحقات لهذه الرحلة');
 
     const companyId = trip.Bus.companyId;
 
     const result = await this.prisma.$transaction(async (tx: any) => {
+      // Serialize per trip so two concurrent payments cannot both pass the
+      // paid-check above.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${tripId}))`;
+
+      const fresh = await tx.trip.findUnique({
+        where: { id: tripId },
+        select: { PayoutRecordItem: { select: { id: true } } },
+      });
+      if (!fresh || fresh.PayoutRecordItem.length > 0) {
+        throw new BadRequestException('الرحلة مدفوعة مسبقاً');
+      }
+
       let record = await tx.payoutRecord.findFirst({ where: { companyId } });
       if (!record) {
         record = await tx.payoutRecord.create({
-          data: { companyId, amount: totalAmount, ...receipt, note: `صرف رحلة ${trip.fromCity} → ${trip.toCity}` },
+          data: {
+            companyId,
+            amount: totalAmount,
+            ...receipt,
+            note: `صرف رحلة ${trip.fromCity} → ${trip.toCity}`,
+          },
         });
       } else {
         await tx.payoutRecord.update({
           where: { id: record.id },
-          data: { amount: { increment: totalAmount }, receiptFile: receipt?.receiptFile ?? undefined, receiptData: receipt?.receiptData ?? undefined, receiptMime: receipt?.receiptMime ?? undefined },
+          data: {
+            amount: { increment: totalAmount },
+            receiptFile: receipt?.receiptFile ?? undefined,
+            receiptData: receipt?.receiptData ?? undefined,
+            receiptMime: receipt?.receiptMime ?? undefined,
+          },
         });
       }
       await tx.payoutRecordItem.create({
@@ -143,44 +185,69 @@ export class AdminPayoutService {
     return { message: 'تم صرف الرحلة بنجاح', data: result };
   }
 
-  async payAll(companyId: string, receipt?: { receiptFile?: string; receiptData?: string; receiptMime?: string }) {
-    const unpaidTrips = await this.prisma.trip.findMany({
-      where: { Bus: { companyId } },
-      include: {
-        Booking: { where: { status: 'CONFIRMED' }, include: { Payment: true } },
-        PayoutRecordItem: true,
+  async payAll(
+    companyId: string,
+    receipt?: {
+      receiptFile?: string;
+      receiptData?: string;
+      receiptMime?: string;
+    },
+  ) {
+    // Trip selection, total computation and record/items writes all run
+    // inside one transaction serialized per company — concurrent payAll or
+    // payTrip calls can never double-pay the same trips.
+    const { record, totalAmount } = await this.prisma.$transaction(
+      async (tx: any) => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}))`;
+
+        const unpaidTrips = await tx.trip.findMany({
+          where: { Bus: { companyId } },
+          include: {
+            Booking: {
+              where: { status: 'CONFIRMED' },
+              include: { Payment: true },
+            },
+            PayoutRecordItem: true,
+          },
+        });
+
+        const toPay = unpaidTrips.filter(
+          (t: any) => t.PayoutRecordItem.length === 0,
+        );
+        if (toPay.length === 0)
+          throw new BadRequestException('لا توجد رحلات غير مدفوعة');
+
+        let amount = 0;
+        for (const trip of toPay) {
+          for (const b of trip.Booking) {
+            amount += Number(b.Payment?.companyAmount ?? 0);
+          }
+        }
+
+        let rec = await tx.payoutRecord.findFirst({ where: { companyId } });
+        if (!rec) {
+          rec = await tx.payoutRecord.create({
+            data: { companyId, amount, ...receipt, note: 'صرف جميع المستحقات' },
+          });
+        } else {
+          rec = await tx.payoutRecord.update({
+            where: { id: rec.id },
+            data: {
+              amount: { increment: amount },
+              receiptFile: receipt?.receiptFile ?? undefined,
+              receiptData: receipt?.receiptData ?? undefined,
+              receiptMime: receipt?.receiptMime ?? undefined,
+            },
+          });
+        }
+        for (const trip of toPay) {
+          await tx.payoutRecordItem.create({
+            data: { payoutRecordId: rec.id, tripId: trip.id },
+          });
+        }
+        return { record: rec, totalAmount: amount };
       },
-    });
-
-    const toPay = unpaidTrips.filter(t => t.PayoutRecordItem.length === 0);
-    if (toPay.length === 0) throw new BadRequestException('لا توجد رحلات غير مدفوعة');
-
-    let totalAmount = 0;
-    for (const trip of toPay) {
-      for (const b of trip.Booking) {
-        totalAmount += Number(b.Payment?.companyAmount ?? 0);
-      }
-    }
-
-    const result = await this.prisma.$transaction(async (tx: any) => {
-      let record = await tx.payoutRecord.findFirst({ where: { companyId } });
-      if (!record) {
-        record = await tx.payoutRecord.create({
-          data: { companyId, amount: totalAmount, ...receipt, note: 'صرف جميع المستحقات' },
-        });
-      } else {
-        await tx.payoutRecord.update({
-          where: { id: record.id },
-          data: { amount: { increment: totalAmount }, receiptFile: receipt?.receiptFile ?? undefined, receiptData: receipt?.receiptData ?? undefined, receiptMime: receipt?.receiptMime ?? undefined },
-        });
-      }
-      for (const trip of toPay) {
-        await tx.payoutRecordItem.create({
-          data: { payoutRecordId: record.id, tripId: trip.id },
-        });
-      }
-      return record;
-    });
+    );
 
     this.wsGateway.emitToCompany(companyId, WS_EVENTS.NOTIFICATION_NEW, {
       type: 'PAYOUT_REQUEST',
@@ -196,7 +263,7 @@ export class AdminPayoutService {
       emitTo: `company:${companyId}`,
     });
 
-    return { message: 'تم صرف جميع المستحقات بنجاح', data: result };
+    return { message: 'تم صرف جميع المستحقات بنجاح', data: record };
   }
 
   async getRequests() {
@@ -215,7 +282,7 @@ export class AdminPayoutService {
     }
 
     return {
-      data: requests.map(r => {
+      data: requests.map((r) => {
         const bank = accountMap.get(r.companyId);
         return {
           id: r.id,
@@ -230,27 +297,59 @@ export class AdminPayoutService {
             bankName: bank?.bankName ?? null,
             accountNumber: bank?.accountNumber ?? null,
           },
-          trip: r.Trip ? { fromCity: r.Trip.fromCity, toCity: r.Trip.toCity } : null,
+          trip: r.Trip
+            ? { fromCity: r.Trip.fromCity, toCity: r.Trip.toCity }
+            : null,
         };
       }),
     };
   }
 
-  async approveRequest(requestId: string, receipt?: { receiptFile?: string; receiptData?: string; receiptMime?: string }) {
+  async approveRequest(
+    requestId: string,
+    receipt?: {
+      receiptFile?: string;
+      receiptData?: string;
+      receiptMime?: string;
+    },
+  ) {
     const request = await this.prisma.payoutRequest.findUnique({
       where: { id: requestId },
       include: { Trip: { select: { id: true, fromCity: true, toCity: true } } },
     });
     if (!request) throw new NotFoundException('طلب الصرف غير موجود');
-    if (request.status !== 'PENDING') throw new BadRequestException('يمكن قبول الطلبات المعلقة فقط');
+    if (request.status !== 'PENDING')
+      throw new BadRequestException('يمكن قبول الطلبات المعلقة فقط');
 
     await this.prisma.$transaction(async (tx: any) => {
-      await tx.payoutRequest.update({
-        where: { id: requestId },
-        data: { status: 'APPROVED', note: receipt?.receiptFile ? `إيصال: ${receipt.receiptFile}` : null },
-      });
+      // Serialize per company and atomically claim the PENDING request —
+      // double-approval can never pay twice.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${request.companyId}))`;
 
-      let record = await tx.payoutRecord.findFirst({ where: { companyId: request.companyId } });
+      const claimed = await tx.payoutRequest.updateMany({
+        where: { id: requestId, status: 'PENDING' },
+        data: {
+          status: 'APPROVED',
+          note: receipt?.receiptFile ? `إيصال: ${receipt.receiptFile}` : null,
+        },
+      });
+      if (claimed.count === 0) {
+        throw new BadRequestException('يمكن قبول الطلبات المعلقة فقط');
+      }
+
+      if (request.tripId) {
+        // The trip may already have been paid directly via pay-trip.
+        const alreadyPaid = await tx.payoutRecordItem.count({
+          where: { tripId: request.tripId },
+        });
+        if (alreadyPaid > 0) {
+          throw new BadRequestException('تم صرف مستحقات هذه الرحلة مسبقاً');
+        }
+      }
+
+      let record = await tx.payoutRecord.findFirst({
+        where: { companyId: request.companyId },
+      });
       if (!record) {
         record = await tx.payoutRecord.create({
           data: {
@@ -263,7 +362,12 @@ export class AdminPayoutService {
       } else {
         await tx.payoutRecord.update({
           where: { id: record.id },
-          data: { amount: { increment: request.amount }, receiptFile: receipt?.receiptFile ?? undefined, receiptData: receipt?.receiptData ?? undefined, receiptMime: receipt?.receiptMime ?? undefined },
+          data: {
+            amount: { increment: request.amount },
+            receiptFile: receipt?.receiptFile ?? undefined,
+            receiptData: receipt?.receiptData ?? undefined,
+            receiptMime: receipt?.receiptMime ?? undefined,
+          },
         });
       }
 
@@ -274,11 +378,15 @@ export class AdminPayoutService {
       }
     });
 
-    this.wsGateway.emitToCompany(request.companyId, WS_EVENTS.NOTIFICATION_NEW, {
-      type: 'PAYOUT_REQUEST',
-      title: 'تمت الموافقة على طلب الصرف',
-      body: `تمت الموافقة على طلب الصرف بمبلغ ${Math.round(Number(request.amount))} جنيه`,
-    });
+    this.wsGateway.emitToCompany(
+      request.companyId,
+      WS_EVENTS.NOTIFICATION_NEW,
+      {
+        type: 'PAYOUT_REQUEST',
+        title: 'تمت الموافقة على طلب الصرف',
+        body: `تمت الموافقة على طلب الصرف بمبلغ ${Math.round(Number(request.amount))} جنيه`,
+      },
+    );
 
     await this.notifications.create({
       userId: request.companyId,
@@ -296,18 +404,24 @@ export class AdminPayoutService {
       where: { id: requestId },
     });
     if (!request) throw new NotFoundException('طلب الصرف غير موجود');
-    if (request.status !== 'PENDING') throw new BadRequestException('يمكن رفض الطلبات المعلقة فقط');
 
-    await this.prisma.payoutRequest.update({
-      where: { id: requestId },
+    const claimed = await this.prisma.payoutRequest.updateMany({
+      where: { id: requestId, status: 'PENDING' },
       data: { status: 'REJECTED' },
     });
+    if (claimed.count === 0) {
+      throw new BadRequestException('يمكن رفض الطلبات المعلقة فقط');
+    }
 
-    this.wsGateway.emitToCompany(request.companyId, WS_EVENTS.NOTIFICATION_NEW, {
-      type: 'PAYOUT_REQUEST',
-      title: 'تم رفض طلب الصرف',
-      body: 'تم رفض طلب الصرف الخاص بك',
-    });
+    this.wsGateway.emitToCompany(
+      request.companyId,
+      WS_EVENTS.NOTIFICATION_NEW,
+      {
+        type: 'PAYOUT_REQUEST',
+        title: 'تم رفض طلب الصرف',
+        body: 'تم رفض طلب الصرف الخاص بك',
+      },
+    );
 
     await this.notifications.create({
       userId: request.companyId,
@@ -334,7 +448,7 @@ export class AdminPayoutService {
     });
 
     return {
-      data: records.map(r => ({
+      data: records.map((r) => ({
         id: r.id,
         amount: Math.round(Number(r.amount)),
         note: r.note,
@@ -343,39 +457,48 @@ export class AdminPayoutService {
         receiptMime: r.receiptMime,
         createdAt: r.createdAt,
         company: { name: r.Company?.name ?? '—' },
-        items: r.Items.map(i => ({
-          trip: i.Trip ? { fromCity: i.Trip.fromCity, toCity: i.Trip.toCity } : null,
+        items: r.Items.map((i) => ({
+          trip: i.Trip
+            ? { fromCity: i.Trip.fromCity, toCity: i.Trip.toCity }
+            : null,
         })),
       })),
     };
   }
 
   async getStats() {
-    const [companies, unpaidTrips, pendingRequests, paidRecords] = await Promise.all([
-      this.prisma.users.findMany({
-        where: { role: 'COMPANY' as any, isActive: true },
-        include: {
-          Bus: {
-            include: {
-              Trip: {
-                include: {
-                  Booking: { where: { status: 'CONFIRMED' }, include: { Payment: true } },
-                  PayoutRecordItem: true,
+    const [companies, unpaidTrips, pendingRequests, paidRecords] =
+      await Promise.all([
+        this.prisma.users.findMany({
+          where: { role: 'COMPANY' as any, isActive: true },
+          include: {
+            Bus: {
+              include: {
+                Trip: {
+                  include: {
+                    Booking: {
+                      where: { status: 'CONFIRMED' },
+                      include: { Payment: true },
+                    },
+                    PayoutRecordItem: true,
+                  },
                 },
               },
             },
           },
-        },
-      }),
-      this.prisma.trip.findMany({
-        where: { PayoutRecordItem: { none: {} } },
-        include: {
-          Booking: { where: { status: 'CONFIRMED' }, include: { Payment: true } },
-        },
-      }),
-      this.prisma.payoutRequest.count({ where: { status: 'PENDING' } }),
-      this.prisma.payoutRecord.findMany(),
-    ]);
+        }),
+        this.prisma.trip.findMany({
+          where: { PayoutRecordItem: { none: {} } },
+          include: {
+            Booking: {
+              where: { status: 'CONFIRMED' },
+              include: { Payment: true },
+            },
+          },
+        }),
+        this.prisma.payoutRequest.count({ where: { status: 'PENDING' } }),
+        this.prisma.payoutRecord.findMany(),
+      ]);
 
     let totalUnpaid = 0;
     for (const trip of unpaidTrips) {
@@ -385,7 +508,7 @@ export class AdminPayoutService {
     }
 
     const totalPaid = paidRecords.reduce((s, r) => s + Number(r.amount), 0);
-    const totalCompanies = companies.filter(c => {
+    const totalCompanies = companies.filter((c) => {
       let hasUnpaid = false;
       for (const bus of c.Bus) {
         for (const trip of bus.Trip) {

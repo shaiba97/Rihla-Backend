@@ -1,6 +1,11 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '@app/prisma';
-import { TafiyaWsGateway, WS_EVENTS } from '@app/websocket';
+import { TafiyaWsGateway } from '@app/websocket';
 import { NotificationsService } from '../../notifications/notifications.service';
 
 @Injectable()
@@ -31,7 +36,7 @@ export class PayoutService {
     for (const trip of trips) {
       const paidOut = trip.PayoutRecordItem.length > 0;
       const totalRevenue = trip.Booking.reduce(
-        (sum, b) => sum + Number(b.Payment?.companyAmount ?? 0),
+        (sum: number, b: any) => sum + Number(b.Payment?.companyAmount ?? 0),
         0,
       );
 
@@ -55,7 +60,10 @@ export class PayoutService {
 
   private static readonly PAYOUT_MIN_DELAY_MS = 30 * 60 * 1000;
 
-  private getDepartureInstant(departureDate: Date, departureTime: string): Date {
+  private getDepartureInstant(
+    departureDate: Date,
+    departureTime: string,
+  ): Date {
     const dep = new Date(departureDate);
     const [hh, mm] = (departureTime ?? '00:00').split(':').map(Number);
     dep.setHours(hh || 0, mm || 0, 0, 0);
@@ -63,7 +71,10 @@ export class PayoutService {
   }
 
   private isEligible(departureDate: Date, departureTime: string): boolean {
-    const departure = this.getDepartureInstant(departureDate, departureTime).getTime();
+    const departure = this.getDepartureInstant(
+      departureDate,
+      departureTime,
+    ).getTime();
     return Date.now() - departure >= PayoutService.PAYOUT_MIN_DELAY_MS;
   }
 
@@ -83,9 +94,9 @@ export class PayoutService {
       orderBy: { departureDate: 'desc' },
     });
 
-    return trips.map(trip => {
+    return trips.map((trip) => {
       const totalRevenue = trip.Booking.reduce(
-        (sum, b) => sum + Number(b.Payment?.companyAmount ?? 0),
+        (sum: number, b: any) => sum + Number(b.Payment?.companyAmount ?? 0),
         0,
       );
       const paidOut = trip.PayoutRecordItem.length > 0;
@@ -101,85 +112,106 @@ export class PayoutService {
         unpaidAmount: paidOut ? 0 : Math.round(totalRevenue),
         paidOut,
         hasPendingRequest,
-        canRequest: !paidOut && !hasPendingRequest && totalRevenue > 0 && this.isEligible(trip.departureDate, trip.departureTime),
+        canRequest:
+          !paidOut &&
+          !hasPendingRequest &&
+          totalRevenue > 0 &&
+          this.isEligible(trip.departureDate, trip.departureTime),
       };
     });
   }
 
   async requestPayout(companyId: string, tripId?: string) {
-    const trips = await this.prisma.trip.findMany({
-      where: {
-        Bus: { companyId },
-        ...(tripId ? { id: tripId } : {}),
-      },
-      include: {
-        Booking: {
-          where: { status: 'CONFIRMED' },
-          include: { Payment: true },
+    // Trip eligibility reads, pending-checks and inserts run inside one
+    // transaction serialized by a per-company advisory lock, so two
+    // concurrent requests can never create duplicate payout requests for
+    // the same trip (double-payout race).
+    const requests = await this.prisma.$transaction(async (tx: any) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}))`;
+
+      const trips = await tx.trip.findMany({
+        where: {
+          Bus: { companyId },
+          ...(tripId ? { id: tripId } : {}),
         },
-        PayoutRecordItem: true,
-        PayoutRequest: {
-          where: { status: { in: ['PENDING', 'APPROVED'] } },
-        },
-      },
-    });
-
-    if (trips.length === 0) {
-      throw new NotFoundException('لا توجد رحلات متاحة للصرف');
-    }
-
-    const pendingTrips: (typeof trips)[number][] = [];
-    const blockedTrips: { id: string; fromCity: string; toCity: string }[] = [];
-
-    for (const trip of trips) {
-      if (trip.PayoutRecordItem.length > 0) continue;
-      if (trip.PayoutRequest.length > 0) continue;
-
-      const totalRevenue = trip.Booking.reduce(
-        (sum, b) => sum + Number(b.Payment?.companyAmount ?? 0),
-        0,
-      );
-
-      if (totalRevenue <= 0) continue;
-
-      pendingTrips.push(trip);
-      if (!this.isEligible(trip.departureDate, trip.departureTime)) {
-        blockedTrips.push({ id: trip.id, fromCity: trip.fromCity, toCity: trip.toCity });
-      }
-    }
-
-    if (pendingTrips.length === 0) {
-      throw new BadRequestException('لا توجد مبالغ جديدة للصرف');
-    }
-
-    if (blockedTrips.length > 0) {
-      const names = blockedTrips.map(t => `${t.fromCity} ← ${t.toCity}`).join('، ');
-      throw new BadRequestException(
-        `لا يمكن طلب صرف هذه الرحلات قبل مرور ٣٠ دقيقة على موعد الانطلاق: ${names}`,
-      );
-    }
-
-    const requests = [];
-
-    for (const trip of pendingTrips) {
-      const totalRevenue = trip.Booking.reduce(
-        (sum, b) => sum + Number(b.Payment?.companyAmount ?? 0),
-        0,
-      );
-
-      const request = await this.prisma.payoutRequest.create({
-        data: {
-          companyId,
-          tripId: trip.id,
-          amount: totalRevenue,
-          status: 'PENDING',
+        include: {
+          Booking: {
+            where: { status: 'CONFIRMED' },
+            include: { Payment: true },
+          },
+          PayoutRecordItem: true,
+          PayoutRequest: {
+            where: { status: { in: ['PENDING', 'APPROVED'] } },
+          },
         },
       });
 
-      requests.push(request);
-    }
+      if (trips.length === 0) {
+        throw new NotFoundException('لا توجد رحلات متاحة للصرف');
+      }
 
-    // Notify all admin users about the payout request
+      const pendingTrips: (typeof trips)[number][] = [];
+      const blockedTrips: { id: string; fromCity: string; toCity: string }[] =
+        [];
+
+      for (const trip of trips) {
+        if (trip.PayoutRecordItem.length > 0) continue;
+        if (trip.PayoutRequest.length > 0) continue;
+
+        const totalRevenue = trip.Booking.reduce(
+          (sum: number, b: any) => sum + Number(b.Payment?.companyAmount ?? 0),
+          0,
+        );
+
+        if (totalRevenue <= 0) continue;
+
+        pendingTrips.push(trip);
+        if (!this.isEligible(trip.departureDate, trip.departureTime)) {
+          blockedTrips.push({
+            id: trip.id,
+            fromCity: trip.fromCity,
+            toCity: trip.toCity,
+          });
+        }
+      }
+
+      if (pendingTrips.length === 0) {
+        throw new BadRequestException('لا توجد مبالغ جديدة للصرف');
+      }
+
+      if (blockedTrips.length > 0) {
+        const names = blockedTrips
+          .map((t) => `${t.fromCity} ← ${t.toCity}`)
+          .join('، ');
+        throw new BadRequestException(
+          `لا يمكن طلب صرف هذه الرحلات قبل مرور ٣٠ دقيقة على موعد الانطلاق: ${names}`,
+        );
+      }
+
+      const created = [];
+
+      for (const trip of pendingTrips) {
+        const totalRevenue = trip.Booking.reduce(
+          (sum: number, b: any) => sum + Number(b.Payment?.companyAmount ?? 0),
+          0,
+        );
+
+        const request = await tx.payoutRequest.create({
+          data: {
+            companyId,
+            tripId: trip.id,
+            amount: totalRevenue,
+            status: 'PENDING',
+          },
+        });
+
+        created.push(request);
+      }
+
+      return created;
+    });
+
+    // Notify all admin users about the payout request (non-blocking).
     try {
       const admins = await this.prisma.users.findMany({
         where: { role: 'ADMIN' as any, isActive: true },
@@ -194,14 +226,16 @@ export class PayoutService {
           title: 'طلب صرف جديد',
           body: `تم تقديم طلب صرف جديد بمبلغ ${totalAmount} جنيه`,
           data: {
-            requestIds: requests.map(r => r.id),
+            requestIds: requests.map((r) => r.id),
             totalAmount,
           },
           emitTo: `admin`,
         });
       }
     } catch (e) {
-      this.logger.warn('Failed to notify admins (non-blocking): ' + (e as Error).message);
+      this.logger.warn(
+        'Failed to notify admins (non-blocking): ' + (e as Error).message,
+      );
     }
 
     return {
@@ -230,13 +264,13 @@ export class PayoutService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return records.map(r => ({
+    return records.map((r) => ({
       id: r.id,
       amount: Math.round(Number(r.amount)),
       note: r.note,
       receiptFile: r.receiptFile,
       createdAt: r.createdAt,
-      items: r.Items.map(item => ({
+      items: r.Items.map((item) => ({
         trip: {
           id: item.Trip.id,
           fromCity: item.Trip.fromCity,
@@ -262,7 +296,14 @@ export class PayoutService {
     };
   }
 
-  async updateAccount(companyId: string, data: { accountHolderName?: string; bankName?: string; accountNumber?: string }) {
+  async updateAccount(
+    companyId: string,
+    data: {
+      accountHolderName?: string;
+      bankName?: string;
+      accountNumber?: string;
+    },
+  ) {
     const account = await this.prisma.companyBankAccount.upsert({
       where: { companyId },
       create: {
@@ -272,9 +313,13 @@ export class PayoutService {
         accountNumber: data.accountNumber ?? null,
       },
       update: {
-        ...(data.accountHolderName !== undefined ? { accountHolderName: data.accountHolderName } : {}),
+        ...(data.accountHolderName !== undefined
+          ? { accountHolderName: data.accountHolderName }
+          : {}),
         ...(data.bankName !== undefined ? { bankName: data.bankName } : {}),
-        ...(data.accountNumber !== undefined ? { accountNumber: data.accountNumber } : {}),
+        ...(data.accountNumber !== undefined
+          ? { accountNumber: data.accountNumber }
+          : {}),
       },
     });
 

@@ -6,6 +6,7 @@ import {
   IsNumber,
   IsEnum,
   Matches,
+  Min,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -21,7 +22,9 @@ export class CreateTripDto {
   departureDate: Date;
 
   @ApiProperty({ description: 'وقت المغادرة' })
-  @Matches(/^\d{2}:\d{2}(:\d{2})?$/, { message: 'وقت المغادرة يجب أن يكون بصيغة HH:mm أو HH:mm:ss' })
+  @Matches(/^\d{2}:\d{2}(:\d{2})?$/, {
+    message: 'وقت المغادرة يجب أن يكون بصيغة HH:mm أو HH:mm:ss',
+  })
   @IsNotEmpty({ message: 'وقت المغادرة مطلوب' })
   departureTime: string;
 
@@ -41,7 +44,9 @@ export class CreateTripDto {
   fromStation: string;
 
   @ApiProperty({ description: 'وقت الوصول' })
-  @Matches(/^\d{2}:\d{2}(:\d{2})?$/, { message: 'وقت الوصول يجب أن يكون بصيغة HH:mm أو HH:mm:ss' })
+  @Matches(/^\d{2}:\d{2}(:\d{2})?$/, {
+    message: 'وقت الوصول يجب أن يكون بصيغة HH:mm أو HH:mm:ss',
+  })
   @IsNotEmpty({ message: 'وقت وصول مطلوب' })
   arrivalTime: string;
 
@@ -67,6 +72,7 @@ export class CreateTripDto {
 
   @ApiProperty({ description: 'السعر' })
   @IsNumber({}, { message: 'السعر يجب أن يكون عدداً' })
+  @Min(0, { message: 'السعر لا يمكن أن يكون سالباً' })
   @IsOptional()
   price?: number;
 
@@ -94,7 +100,9 @@ export class UpdateTripDto {
   departureDate?: string;
 
   @ApiProperty({ description: 'وقت المغادرة' })
-  @Matches(/^\d{2}:\d{2}(:\d{2})?$/, { message: 'وقت المغادرة يجب أن يكون بصيغة HH:mm أو HH:mm:ss' })
+  @Matches(/^\d{2}:\d{2}(:\d{2})?$/, {
+    message: 'وقت المغادرة يجب أن يكون بصيغة HH:mm أو HH:mm:ss',
+  })
   @IsOptional()
   departureTime?: string;
 
@@ -114,7 +122,9 @@ export class UpdateTripDto {
   fromStation?: string;
 
   @ApiProperty({ description: 'وقت وصول' })
-  @Matches(/^\d{2}:\d{2}(:\d{2})?$/, { message: 'وقت الوصول يجب أن يكون بصيغة HH:mm أو HH:mm:ss' })
+  @Matches(/^\d{2}:\d{2}(:\d{2})?$/, {
+    message: 'وقت الوصول يجب أن يكون بصيغة HH:mm أو HH:mm:ss',
+  })
   @IsOptional()
   arrivalTime?: string;
 
