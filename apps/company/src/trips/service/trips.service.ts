@@ -4,7 +4,7 @@ import {
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
-import { PrismaService } from '@app/prisma';
+import { PrismaService, Prisma } from '@app/prisma';
 import { RedisService } from '@app/redis';
 import { TafiyaWsGateway, WS_EVENTS } from '@app/websocket';
 import { PDFService } from '@app/pdf';
@@ -100,24 +100,39 @@ export class TripsService {
       throw new ForbiddenException('لا يمكنك إنشاء رحلة لحافلة شركة أخرى');
     }
 
-    const trip = await this.prisma.trip.create({
-      data: {
-        busId: createTripDto.busId,
-        departureDate: createTripDto.departureDate,
-        departureTime: createTripDto.departureTime,
-        presence_time: 'قبل ساعة',
-        fromState: createTripDto.fromState,
-        fromCity: createTripDto.fromCity,
-        fromStation: createTripDto.fromStation,
-        arrivalTime: createTripDto.arrivalTime,
-        arrivalDate: createTripDto.arrivalDate,
-        toState: createTripDto.toState,
-        toCity: createTripDto.toCity,
-        toStation: createTripDto.toStation,
-        status: (createTripDto.status as any) || 'SCHEDULED',
-        price: createTripDto.price,
-      },
-    });
+    let trip;
+    try {
+      trip = await this.prisma.trip.create({
+        data: {
+          busId: createTripDto.busId,
+          departureDate: createTripDto.departureDate,
+          departureTime: createTripDto.departureTime,
+          presence_time: 'قبل ساعة',
+          fromState: createTripDto.fromState,
+          fromCity: createTripDto.fromCity,
+          fromStation: createTripDto.fromStation,
+          arrivalTime: createTripDto.arrivalTime,
+          arrivalDate: createTripDto.arrivalDate,
+          toState: createTripDto.toState,
+          toCity: createTripDto.toCity,
+          toStation: createTripDto.toStation,
+          status: (createTripDto.status as any) || 'SCHEDULED',
+          price: createTripDto.price,
+        },
+      });
+    } catch (error) {
+      // Client-shaped data problems become clear Arabic 400s instead of raw
+      // 500 "Internal server error" (e.g. malformed date strings).
+      if (
+        error instanceof Prisma.PrismaClientValidationError ||
+        error instanceof Prisma.PrismaClientKnownRequestError
+      ) {
+        throw new BadRequestException(
+          'بيانات الرحلة غير صالحة. يرجى التحقق من التواريخ والمدخلات',
+        );
+      }
+      throw error;
+    }
 
     if (bus) {
       this.wsGateway.emitToRoom(
@@ -353,14 +368,24 @@ export class TripsService {
     if (updateTripDto.status !== undefined)
       updateData.status = updateTripDto.status;
 
-    const updatedTrip = await this.prisma.trip.update({
-      where: { id },
-      data: updateData,
-      include: {
-        Bus: true,
-        Booking: { include: { TicketPDF: true } },
-      },
-    });
+    let updatedTrip;
+    try {
+      updatedTrip = await this.prisma.trip.update({
+        where: { id },
+        data: updateData,
+        include: {
+          Bus: true,
+          Booking: { include: { TicketPDF: true } },
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientValidationError) {
+        throw new BadRequestException(
+          'بيانات الرحلة غير صالحة. يرجى التحقق من المدخلات',
+        );
+      }
+      throw error;
+    }
 
     const bus = updatedTrip.Bus;
     if (bus) {
