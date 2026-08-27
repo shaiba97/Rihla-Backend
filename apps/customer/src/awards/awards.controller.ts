@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Param, Req, UseGuards, Body, BadRequestException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { Prisma } from '@app/prisma';
 import { AwardsService } from './awards.service';
 
 @UseGuards(AuthGuard('jwt'))
@@ -33,7 +34,7 @@ export class AwardsController {
   }
 
   @Post('withdraw')
-  createWithdraw(
+  async createWithdraw(
     @Req() req: any,
     @Body() body: { bankName: string; accountHolder: string; accountNumber: string; amount: number },
   ) {
@@ -43,7 +44,21 @@ export class AwardsController {
     if (!body.amount || body.amount <= 0) {
       throw new BadRequestException('المبلغ المطلوب غير صحيح');
     }
-    return this.svc.createWithdrawRequest(req.user.id, body);
+    try {
+      return await this.svc.createWithdrawRequest(req.user.id, body);
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2002') {
+          throw new BadRequestException('طلب سحب بنفس البيانات موجود بالفعل');
+        }
+        throw new BadRequestException('خطأ في قاعدة البيانات — يرجى المحاولة مجدداً');
+      }
+      if (error instanceof Prisma.PrismaClientValidationError) {
+        throw new BadRequestException('بيانات غير صالحة — يرجى التحقق من المدخلات');
+      }
+      throw error;
+    }
   }
 
   @Get('withdrawals')
