@@ -118,16 +118,23 @@ export class AwardsService {
       where: { userId, status: 'APPROVED' },
       _sum: { amount: true },
     });
+    const pendingWithdrawals = await this.prisma.withdrawRequest.aggregate({
+      where: { userId, status: 'PENDING' },
+      _sum: { amount: true },
+    });
+    const withdrawnTotal = Number(withdrawn._sum.amount ?? 0);
+    const pendingTotal = Number(pendingWithdrawals._sum.amount ?? 0);
     return {
       totalEarnings: total,
-      withdrawn: Number(withdrawn._sum.amount ?? 0),
-      available: total - Number(withdrawn._sum.amount ?? 0),
+      withdrawn: withdrawnTotal,
+      pendingWithdrawals: pendingTotal,
+      available: total - withdrawnTotal - pendingTotal,
     };
   }
 
   async createWithdrawRequest(
     userId: string,
-    data: { bankName: string; accountHolder: string; accountNumber: string },
+    data: { bankName: string; accountHolder: string; accountNumber: string; amount: number },
   ) {
     // The balance read, pending-check and insert run inside one transaction
     // serialized by a per-user advisory lock, so two concurrent requests can
@@ -147,10 +154,25 @@ export class AwardsService {
         where: { userId, status: 'APPROVED' },
         _sum: { amount: true },
       });
-      const available = total - Number(withdrawnAgg._sum.amount ?? 0);
+      const pendingAgg = await tx.withdrawRequest.aggregate({
+        where: { userId, status: 'PENDING' },
+        _sum: { amount: true },
+      });
+      const available = total - Number(withdrawnAgg._sum.amount ?? 0) - Number(pendingAgg._sum.amount ?? 0);
 
       if (available <= 0) {
         throw new BadRequestException('لا يوجد رصيد متاح للسحب');
+      }
+
+      // Minimum withdrawal = minimum pack value
+      const minPackValue = approved.length > 0
+        ? Math.min(...approved.map((a: any) => Number(a.Pack.awardValue)))
+        : 0;
+      if (data.amount < minPackValue) {
+        throw new BadRequestException(`الحد الأدنى للسحب هو ${minPackValue} جنيه`);
+      }
+      if (data.amount > available) {
+        throw new BadRequestException(`المبلغ المطلوب يتجاوز الرصيد المتاح (${available} جنيه)`);
       }
 
       const pending = await tx.withdrawRequest.findFirst({
@@ -166,7 +188,7 @@ export class AwardsService {
           bankName: data.bankName,
           accountHolder: data.accountHolder,
           accountNumber: data.accountNumber,
-          amount: available,
+          amount: data.amount,
         },
       });
     });

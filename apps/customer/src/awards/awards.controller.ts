@@ -35,10 +35,13 @@ export class AwardsController {
   @Post('withdraw')
   createWithdraw(
     @Req() req: any,
-    @Body() body: { bankName: string; accountHolder: string; accountNumber: string },
+    @Body() body: { bankName: string; accountHolder: string; accountNumber: string; amount: number },
   ) {
     if (!body.bankName || !body.accountHolder || !body.accountNumber) {
       throw new BadRequestException('جميع حقول معلومات الحساب مطلوبة');
+    }
+    if (!body.amount || body.amount <= 0) {
+      throw new BadRequestException('المبلغ المطلوب غير صحيح');
     }
     return this.svc.createWithdrawRequest(req.user.id, body);
   }
