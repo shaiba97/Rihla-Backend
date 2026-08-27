@@ -205,9 +205,20 @@ export class BookingService {
         );
       }
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        throw new BadRequestException(
-          'حدث خطأ في قاعدة البيانات. يرجى المحاولة مجدداً',
-        );
+        switch (error.code) {
+          case 'P2002':
+            throw new BadRequestException(
+              'رقم العملية مكرر — يرجى استخدام رقم عملية فريد أو المحاولة بدون رقم',
+            );
+          case 'P2003':
+            throw new BadRequestException(
+              'خطأ في البيانات المرجعية — يرجى المحاولة مجدداً',
+            );
+          default:
+            throw new BadRequestException(
+              'حدث خطأ في قاعدة البيانات. يرجى المحاولة مجدداً',
+            );
+        }
       }
       throw error;
     }
@@ -431,9 +442,20 @@ export class BookingService {
         );
       }
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        throw new BadRequestException(
-          'حدث خطأ في قاعدة البيانات. يرجى المحاولة مجدداً',
-        );
+        switch (error.code) {
+          case 'P2002':
+            throw new BadRequestException(
+              'رقم العملية مكرر — يرجى استخدام رقم عملية فريد أو المحاولة بدون رقم',
+            );
+          case 'P2003':
+            throw new BadRequestException(
+              'خطأ في البيانات المرجعية — يرجى المحاولة مجدداً',
+            );
+          default:
+            throw new BadRequestException(
+              'حدث خطأ في قاعدة البيانات. يرجى المحاولة مجدداً',
+            );
+        }
       }
       throw error;
     }
