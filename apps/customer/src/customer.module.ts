@@ -11,6 +11,7 @@ import { AwardsModule } from './awards/awards.module';
 import { TicketsModule } from './tickets/tickets.module';
 import { TafiyaWsModule } from '@app/websocket';
 import { MulterExceptionFilter } from './filters/multer-exception.filter';
+import { AllExceptionsFilter } from './filters/all-exceptions.filter';
 import { CitiesModule } from '@app/cities';
 
 @Module({
@@ -18,6 +19,7 @@ import { CitiesModule } from '@app/cities';
   controllers: [CustomerController],
   providers: [
     CustomerService,
+    { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_FILTER, useClass: MulterExceptionFilter },
   ],
 })
