@@ -13,6 +13,28 @@ async function run() {
     await client.query('ALTER TABLE "PlatformFee" ADD COLUMN IF NOT EXISTS "label" TEXT');
     console.log('OK: PlatformFee.label column ensured');
 
+    // 1b. Add Payment.platformFeeAmount if missing (schema drift — no migration)
+    await client.query('ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "platformFeeAmount" DECIMAL(10,2)');
+    console.log('OK: Payment.platformFeeAmount column ensured');
+
+    // 1c. Add Booking.cancellationReason if missing (schema drift — no migration)
+    await client.query('ALTER TABLE "Booking" ADD COLUMN IF NOT EXISTS "cancellationReason" TEXT');
+    console.log('OK: Booking.cancellationReason column ensured');
+
+    // 1d. Add missing users columns (schema drift — no migrations)
+    await client.query('ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "phone" TEXT');
+    await client.query('ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "isActive" BOOLEAN NOT NULL DEFAULT true');
+    await client.query('ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "googleId" TEXT');
+    await client.query('ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "facebookId" TEXT');
+    await client.query('ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "avatar" TEXT');
+    await client.query('ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "refreshToken" TEXT');
+    console.log('OK: Missing users columns ensured');
+    // Add unique indexes for nullable unique columns (IF NOT EXISTS via catch)
+    try { await client.query('CREATE UNIQUE INDEX "users_phone_key" ON "users"("phone") WHERE "phone" IS NOT NULL'); } catch {}
+    try { await client.query('CREATE UNIQUE INDEX "users_googleId_key" ON "users"("googleId") WHERE "googleId" IS NOT NULL'); } catch {}
+    try { await client.query('CREATE UNIQUE INDEX "users_facebookId_key" ON "users"("facebookId") WHERE "facebookId" IS NOT NULL'); } catch {}
+    console.log('OK: Users unique indexes ensured');
+
     // 2. Add PAYOUT_REQUEST enum value if missing
     await client.query(`
       DO $$ BEGIN

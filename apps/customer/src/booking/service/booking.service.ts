@@ -215,6 +215,9 @@ export class BookingService {
               'خطأ في البيانات المرجعية — يرجى المحاولة مجدداً',
             );
           default:
+            this.logger.error(
+              `booking.create Prisma error: code=${error.code} meta=${JSON.stringify(error.meta)} message=${error.message}`,
+            );
             throw new BadRequestException(
               'حدث خطأ في قاعدة البيانات. يرجى المحاولة مجدداً',
             );
@@ -452,6 +455,9 @@ export class BookingService {
               'خطأ في البيانات المرجعية — يرجى المحاولة مجدداً',
             );
           default:
+            this.logger.error(
+              `createBookingWithPayment Prisma error: code=${error.code} meta=${JSON.stringify(error.meta)} message=${error.message}`,
+            );
             throw new BadRequestException(
               'حدث خطأ في قاعدة البيانات. يرجى المحاولة مجدداً',
             );

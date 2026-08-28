@@ -272,14 +272,16 @@ export class TripsService {
     }
 
     const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    todayStart.setUTCHours(0, 0, 0, 0);
     where.departureDate = { gte: todayStart };
 
     if (searchCriteria.departureDate) {
       const parsedDate = new Date(searchCriteria.departureDate);
       if (!isNaN(parsedDate.getTime())) {
-        parsedDate.setHours(0, 0, 0, 0);
-        where.departureDate = { gte: parsedDate };
+        parsedDate.setUTCHours(0, 0, 0, 0);
+        const dayEnd = new Date(parsedDate);
+        dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+        where.departureDate = { gte: parsedDate, lt: dayEnd };
       }
     }
 
