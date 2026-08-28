@@ -55,20 +55,31 @@ export class PaymentService {
   }
 
   async getBusProfits(companyId: string) {
-    const payments = await this.prisma.payment.findMany({
+    const activeFee = await this.prisma.platformFee.findFirst({
+      where: { isActive: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    const feeRate = activeFee ? Number(activeFee.percentage) : 5;
+
+    const bookings = await this.prisma.booking.findMany({
       where: {
-        Booking: { Trip: { Bus: { companyId } } },
-        status: 'SUCCESS',
+        status: 'CONFIRMED' as any,
+        Trip: { Bus: { companyId } },
       },
-      include: { Booking: { include: { Trip: { include: { Bus: { select: { id: true, name: true } } } } } } },
+      include: { Trip: { include: { Bus: { select: { id: true, name: true } } } } },
     });
 
     const profitByBus: Record<string, { busId: string; busName: string; profit: number }> = {};
-    for (const p of payments as any[]) {
-      const bus = p.Booking?.Trip?.Bus;
+    for (const b of bookings as any[]) {
+      const bus = b.Trip?.Bus;
       if (!bus?.id) continue;
       if (!profitByBus[bus.id]) profitByBus[bus.id] = { busId: bus.id, busName: bus.name ?? '—', profit: 0 };
-      profitByBus[bus.id].profit += Number(p.companyAmount ?? 0);
+      const price = Number(b.Trip?.price ?? 0);
+      const seats = Array.isArray(b.seatNumbers) ? b.seatNumbers.length : 0;
+      if (price <= 0 || seats <= 0) continue;
+      const gross = price * seats;
+      const commission = Math.round((gross * feeRate) / 100);
+      profitByBus[bus.id].profit += gross - commission;
     }
 
     const buses = await this.prisma.bus.findMany({
