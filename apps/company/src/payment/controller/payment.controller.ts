@@ -19,4 +19,11 @@ export class PaymentController {
     const data = await this.paymentService.getPerformance(req.user.id, (period ?? 'monthly') as any);
     return { data };
   }
+
+  @Get('by-bus')
+  @UseGuards(AuthGuard('jwt'))
+  async getBusProfits(@Req() req: any) {
+    const data = await this.paymentService.getBusProfits(req.user.id);
+    return { data };
+  }
 }

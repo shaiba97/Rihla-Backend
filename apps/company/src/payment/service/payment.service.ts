@@ -54,6 +54,36 @@ export class PaymentService {
     return { totalRevenue, totalCommission: 0, netEarnings: totalCompanyIncome, thisMonthRevenue, totalBookings, pendingBookings, dailyRevenue, topTrips, recentPayments: recentPaymentsList };
   }
 
+  async getBusProfits(companyId: string) {
+    const payments = await this.prisma.payment.findMany({
+      where: {
+        Booking: { Trip: { Bus: { companyId } } },
+        status: 'SUCCESS',
+      },
+      include: { Booking: { include: { Trip: { include: { Bus: { select: { id: true, name: true } } } } } } },
+    });
+
+    const profitByBus: Record<string, { busId: string; busName: string; profit: number }> = {};
+    for (const p of payments as any[]) {
+      const bus = p.Booking?.Trip?.Bus;
+      if (!bus?.id) continue;
+      if (!profitByBus[bus.id]) profitByBus[bus.id] = { busId: bus.id, busName: bus.name ?? '—', profit: 0 };
+      profitByBus[bus.id].profit += Number(p.companyAmount ?? 0);
+    }
+
+    const buses = await this.prisma.bus.findMany({
+      where: { companyId },
+      select: { id: true, name: true },
+    });
+    for (const b of buses as any[]) {
+      if (!profitByBus[b.id]) profitByBus[b.id] = { busId: b.id, busName: b.name ?? '—', profit: 0 };
+    }
+
+    return Object.values(profitByBus)
+      .map((v) => ({ ...v, profit: Math.round(v.profit) }))
+      .sort((a, b) => b.profit - a.profit);
+  }
+
   async getPerformance(companyId: string, period: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'half-yearly' | 'yearly' = 'monthly') {
     const payments = await this.prisma.payment.findMany({
       where: {
