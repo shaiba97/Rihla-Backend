@@ -51,6 +51,26 @@ export class TripsController {
     return { blockedSeats: seats };
   }
 
+  @Get('customers/lookup')
+  @UseGuards(AuthGuard('jwt'))
+  async lookupCustomer(
+    @Query('email') email?: string,
+    @Query('phone') phone?: string,
+  ) {
+    const customer = await this.usersService.lookupCustomer(email, phone);
+    if (!customer) {
+      throw new HttpException('المستخدم غير موجود', HttpStatus.NOT_FOUND);
+    }
+    return { success: true, data: customer };
+  }
+
+  @Get('office-customer')
+  @UseGuards(AuthGuard('jwt'))
+  async getOfficeCustomer() {
+    const office = await this.usersService.ensureOfficeCustomer();
+    return { success: true, data: office };
+  }
+
   @Get('get-trips/property/:property/value/:value')
   async getTripsByProperty(
     @Param('property') property: string,

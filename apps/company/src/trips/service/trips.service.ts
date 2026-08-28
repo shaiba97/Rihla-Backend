@@ -629,6 +629,11 @@ export class TripsService {
       throw new BadRequestException('المقعد محجوز بالفعل');
     }
 
+    const held = await this.getHeldSeats(tripId);
+    if (held.includes(seatNumber)) {
+      throw new BadRequestException('المقعد محجوز بالفعل');
+    }
+
     blocked.push(seatNumber);
     await this.redisService.set(key, JSON.stringify(blocked));
 
@@ -670,6 +675,37 @@ export class TripsService {
     const key = this.blockedSeatsKey(tripId);
     const raw = await this.redisService.get(key);
     return raw ? JSON.parse(raw) : [];
+  }
+
+  /**
+   * Seats currently held by an online customer mid-checkout.
+   * Mirrors customer/booking.service.ts getHeldSeatsFromRedis().
+   * Pattern: booking-session:{customerId}:{tripId} → { seats: number[] }
+   */
+  private async getHeldSeats(tripId: string): Promise<number[]> {
+    try {
+      const keys = await this.redisService.keys(
+        `booking-session:*:${tripId}`,
+      );
+      if (keys.length === 0) return [];
+      const values = await Promise.all(
+        keys.map((k) => this.redisService.get(k)),
+      );
+      const seats: number[] = [];
+      for (const v of values) {
+        if (v) {
+          try {
+            const data = JSON.parse(v);
+            if (Array.isArray(data.seats)) seats.push(...data.seats);
+          } catch {
+            // Malformed session entry — skip.
+          }
+        }
+      }
+      return [...new Set(seats)];
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -723,6 +759,11 @@ export class TripsService {
 
       const blocked = await this.getBlockedSeats(tripId);
       if (sanitizedSeats.some((s) => blocked.includes(s))) {
+        throw new BadRequestException('المقعد محجوز بالفعل');
+      }
+
+      const held = await this.getHeldSeats(tripId);
+      if (sanitizedSeats.some((s) => held.includes(s))) {
         throw new BadRequestException('المقعد محجوز بالفعل');
       }
 

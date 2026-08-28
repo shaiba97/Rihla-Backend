@@ -347,6 +347,50 @@ export class UsersService {
     }
   }
 
+  /**
+   * Look up a customer (USER role) by email or phone.
+   * Used by the company app to resolve a walk-in customer's account
+   * before registering an office booking.
+   */
+  async lookupCustomer(
+    email?: string,
+    phone?: string,
+  ): Promise<{ id: string; name: string; phone: string | null } | null> {
+    if (!email && !phone) return null;
+    const where: any = { role: 'USER' as any };
+    if (email) where.email = email.toLowerCase().trim();
+    if (phone) where.phone = phone.toLowerCase().trim();
+    const user = await this.prisma.users.findFirst({
+      where,
+      select: { id: true, name: true, phone: true },
+    });
+    return user;
+  }
+
+  /**
+   * Ensures a placeholder USER account exists for office (walk-in) bookings.
+   * Idempotent — returns the same account on every call.
+   * Used by createBooking when the booking is a counter sale.
+   */
+  async ensureOfficeCustomer(): Promise<{ id: string; name: string }> {
+    const phone = 'OFFICE_COUNTER';
+    const existing = await this.prisma.users.findUnique({
+      where: { phone },
+      select: { id: true },
+    });
+    if (existing) return { id: existing.id, name: 'حجز مكتب' };
+
+    const created = await this.prisma.users.create({
+      data: {
+        name: 'حجز مكتب',
+        phone,
+        role: 'USER' as any,
+      },
+      select: { id: true },
+    });
+    return { id: created.id, name: 'حجز مكتب' };
+  }
+
   async getUserById(id: string) {
     try {
       const user = await this.prisma.users.findUnique({
