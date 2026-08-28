@@ -131,7 +131,7 @@ export class AdminPayoutService {
     const result = await this.prisma.$transaction(async (tx: any) => {
       // Serialize per trip so two concurrent payments cannot both pass the
       // paid-check above.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${tripId}))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${tripId}))::text`;
 
       const fresh = await tx.trip.findUnique({
         where: { id: tripId },
@@ -198,7 +198,7 @@ export class AdminPayoutService {
     // payTrip calls can never double-pay the same trips.
     const { record, totalAmount } = await this.prisma.$transaction(
       async (tx: any) => {
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}))`;
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}))::text`;
 
         const unpaidTrips = await tx.trip.findMany({
           where: { Bus: { companyId } },
@@ -324,7 +324,7 @@ export class AdminPayoutService {
     await this.prisma.$transaction(async (tx: any) => {
       // Serialize per company and atomically claim the PENDING request —
       // double-approval can never pay twice.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${request.companyId}))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${request.companyId}))::text`;
 
       const claimed = await tx.payoutRequest.updateMany({
         where: { id: requestId, status: 'PENDING' },

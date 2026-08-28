@@ -140,7 +140,7 @@ export class AwardsService {
     // serialized by a per-user advisory lock, so two concurrent requests can
     // never both withdraw the full balance (double-spend race).
     return this.prisma.$transaction(async (tx: any) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))::text`;
 
       const approved = await tx.userAward.findMany({
         where: { userId, status: 'APPROVED' },
