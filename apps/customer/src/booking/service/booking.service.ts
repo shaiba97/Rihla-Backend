@@ -80,7 +80,7 @@ export class BookingService {
     },
     tripId: string,
   ): Promise<void> {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${tripId}))`;
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${tripId}))::text`;
   }
 
   async create(createBookingDto: CreateBookingDto, customerId: string) {

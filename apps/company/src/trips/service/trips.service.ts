@@ -684,7 +684,7 @@ export class TripsService {
     actor: Actor,
   ) {
     const result = await this.prisma.$transaction(async (tx: any) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${tripId}))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${tripId}))::text`;
 
       const trip = await tx.trip.findUnique({
         where: { id: tripId },

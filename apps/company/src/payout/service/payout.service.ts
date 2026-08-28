@@ -127,7 +127,7 @@ export class PayoutService {
     // concurrent requests can never create duplicate payout requests for
     // the same trip (double-payout race).
     const requests = await this.prisma.$transaction(async (tx: any) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}))`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${companyId}))::text`;
 
       const trips = await tx.trip.findMany({
         where: {
