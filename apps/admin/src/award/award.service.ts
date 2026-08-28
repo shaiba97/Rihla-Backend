@@ -102,8 +102,6 @@ export class AwardService {
     if (receipt?.receiptData) data.receiptData = receipt.receiptData;
     if (receipt?.receiptMime) data.receiptMime = receipt.receiptMime;
     await this.prisma.$transaction(async (tx: any) => {
-      // Atomic claim: the expense row is only written by the single request
-      // that flips PENDING → APPROVED (double-approve cannot double-charge).
       const claimed = await tx.userAward.updateMany({
         where: { id, status: 'PENDING' },
         data,
@@ -111,14 +109,8 @@ export class AwardService {
       if (claimed.count === 0) {
         throw new BadRequestException('يمكن قبول المكافآت المعلقة فقط');
       }
-      await tx.expense.create({
-        data: {
-          amount: ua.Pack.awardValue,
-          reason: `مكافأة: ${ua.Pack.title}`,
-        },
-      });
     });
-    return { message: 'تم قبول المكافأة وتسجيل المصروف' };
+    return { message: 'تم قبول المكافأة' };
   }
   async reject(id: string, rejectReason?: string) {
     const ua = await this.prisma.userAward.findUnique({ where: { id } });
@@ -174,14 +166,21 @@ export class AwardService {
     if (receipt?.receiptFile) data.receiptFile = receipt.receiptFile;
     if (receipt?.receiptData) data.receiptData = receipt.receiptData;
     if (receipt?.receiptMime) data.receiptMime = receipt.receiptMime;
-    // Only the request that atomically flips PENDING → APPROVED wins.
-    const claimed = await this.prisma.withdrawRequest.updateMany({
-      where: { id, status: 'PENDING' },
-      data,
+    await this.prisma.$transaction(async (tx: any) => {
+      const claimed = await tx.withdrawRequest.updateMany({
+        where: { id, status: 'PENDING' },
+        data,
+      });
+      if (claimed.count === 0) {
+        throw new BadRequestException('يمكن قبول الطلبات المعلقة فقط');
+      }
+      await tx.expense.create({
+        data: {
+          amount: wr.amount,
+          reason: `سحب أرباح`,
+        },
+      });
     });
-    if (claimed.count === 0) {
-      throw new BadRequestException('يمكن قبول الطلبات المعلقة فقط');
-    }
     return this.prisma.withdrawRequest.findUnique({ where: { id } });
   }
 

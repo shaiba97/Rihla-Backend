@@ -9,6 +9,33 @@ import { PrismaService } from '@app/prisma';
 export class AwardsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Auto-earn: for every active pack whose booking threshold the user has
+   * met, upsert an APPROVED UserAward row if one doesn't exist yet.
+   * Idempotent via the @@unique([userId, packId]) constraint.
+   */
+  private async ensureEarned(userId: string) {
+    const totalBookings = await this.prisma.booking.count({
+      where: {
+        customerId: userId,
+        status: 'CONFIRMED',
+        Payment: { status: 'SUCCESS' },
+      },
+    });
+    const packs = await this.prisma.awardPack.findMany({
+      where: { isActive: true },
+    });
+    for (const p of packs) {
+      if (totalBookings >= p.minBookings) {
+        await this.prisma.userAward.upsert({
+          where: { userId_packId: { userId, packId: p.id } },
+          create: { userId, packId: p.id, status: 'APPROVED' },
+          update: {},
+        });
+      }
+    }
+  }
+
   async getMyAwards(userId: string) {
     const awards = await this.prisma.userAward.findMany({
       where: { userId },
@@ -106,6 +133,7 @@ export class AwardsService {
   }
 
   async getTotalEarnings(userId: string) {
+    await this.ensureEarned(userId);
     const approved = await this.prisma.userAward.findMany({
       where: { userId, status: 'APPROVED' },
       include: { Pack: true },
@@ -141,6 +169,8 @@ export class AwardsService {
     // never both withdraw the full balance (double-spend race).
     return this.prisma.$transaction(async (tx: any) => {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))::text`;
+
+      await this.ensureEarned(userId);
 
       const approved = await tx.userAward.findMany({
         where: { userId, status: 'APPROVED' },
