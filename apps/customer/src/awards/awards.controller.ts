@@ -47,12 +47,18 @@ export class AwardsController {
     try {
       return await this.svc.createWithdrawRequest(req.user.id, body);
     } catch (error) {
+      console.error('[awards/withdraw] error:', {
+        name: error?.name,
+        code: (error as any)?.code,
+        message: (error as any)?.message,
+        meta: (error as any)?.meta,
+      });
       if (error instanceof BadRequestException) throw error;
       if (error instanceof Prisma.PrismaClientKnownRequestError) {
         if (error.code === 'P2002') {
           throw new BadRequestException('طلب سحب بنفس البيانات موجود بالفعل');
         }
-        throw new BadRequestException('خطأ في قاعدة البيانات — يرجى المحاولة مجدداً');
+        throw new BadRequestException(`خطأ في قاعدة البيانات (${error.code}) — يرجى المحاولة مجدداً`);
       }
       if (error instanceof Prisma.PrismaClientValidationError) {
         throw new BadRequestException('بيانات غير صالحة — يرجى التحقق من المدخلات');
