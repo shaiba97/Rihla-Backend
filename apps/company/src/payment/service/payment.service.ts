@@ -54,45 +54,35 @@ export class PaymentService {
     return { totalRevenue, totalCommission: 0, netEarnings: totalCompanyIncome, thisMonthRevenue, totalBookings, pendingBookings, dailyRevenue, topTrips, recentPayments: recentPaymentsList };
   }
 
-  async getBusProfits(companyId: string) {
-    const activeFee = await this.prisma.platformFee.findFirst({
-      where: { isActive: true },
-      orderBy: { createdAt: 'desc' },
-    });
-    const feeRate = activeFee ? Number(activeFee.percentage) : 5;
-
-    const bookings = await this.prisma.booking.findMany({
-      where: {
-        status: 'CONFIRMED' as any,
-        Trip: { Bus: { companyId } },
-      },
-      include: { Trip: { include: { Bus: { select: { id: true, name: true } } } } },
-    });
-
-    const profitByBus: Record<string, { busId: string; busName: string; profit: number }> = {};
-    for (const b of bookings as any[]) {
-      const bus = b.Trip?.Bus;
-      if (!bus?.id) continue;
-      if (!profitByBus[bus.id]) profitByBus[bus.id] = { busId: bus.id, busName: bus.name ?? '—', profit: 0 };
-      const price = Number(b.Trip?.price ?? 0);
-      const seats = Array.isArray(b.seatNumbers) ? b.seatNumbers.length : 0;
-      if (price <= 0 || seats <= 0) continue;
-      const gross = price * seats;
-      const commission = Math.round((gross * feeRate) / 100);
-      profitByBus[bus.id].profit += gross - commission;
-    }
-
+  async getBusCompletedTrips(companyId: string) {
     const buses = await this.prisma.bus.findMany({
       where: { companyId },
       select: { id: true, name: true },
     });
-    for (const b of buses as any[]) {
-      if (!profitByBus[b.id]) profitByBus[b.id] = { busId: b.id, busName: b.name ?? '—', profit: 0 };
+
+    if (buses.length === 0) return [];
+
+    const grouped = await this.prisma.trip.groupBy({
+      by: ['busId'],
+      where: {
+        status: 'COMPLETED' as any,
+        Bus: { companyId },
+      },
+      _count: { busId: true },
+    });
+
+    const countByBus: Record<string, number> = {};
+    for (const g of grouped as any[]) {
+      if (g.busId) countByBus[g.busId] = g._count?.busId ?? 0;
     }
 
-    return Object.values(profitByBus)
-      .map((v) => ({ ...v, profit: Math.round(v.profit) }))
-      .sort((a, b) => b.profit - a.profit);
+    return buses
+      .map((b: any) => ({
+        busId: b.id,
+        busName: b.name ?? '—',
+        completedTrips: countByBus[b.id] ?? 0,
+      }))
+      .sort((a, b) => b.completedTrips - a.completedTrips);
   }
 
   async getPerformance(companyId: string, period: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'half-yearly' | 'yearly' = 'monthly') {

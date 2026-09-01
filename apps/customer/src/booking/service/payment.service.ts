@@ -339,15 +339,22 @@ export class PaymentService {
       where: { bookingId: booking.id },
     });
 
+    const pdfData = ticketResult.buffer?.toString('base64') ?? null;
+
     const ticketRecord = existingTicket
       ? await this.prisma.ticketPDF.update({
           where: { bookingId: booking.id },
-          data: { ticketUrl: ticketResult.publicUrl, generatedAt: new Date() },
+          data: {
+            ticketUrl: ticketResult.publicUrl,
+            ...(pdfData ? { pdfData } : {}),
+            generatedAt: new Date(),
+          },
         })
       : await this.prisma.ticketPDF.create({
           data: {
             bookingId: booking.id,
             ticketUrl: ticketResult.publicUrl,
+            ...(pdfData ? { pdfData } : {}),
             generatedAt: new Date(),
           },
         });

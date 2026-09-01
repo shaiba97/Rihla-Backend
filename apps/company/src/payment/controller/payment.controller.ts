@@ -22,8 +22,8 @@ export class PaymentController {
 
   @Get('by-bus')
   @UseGuards(AuthGuard('jwt'))
-  async getBusProfits(@Req() req: any) {
-    const data = await this.paymentService.getBusProfits(req.user.id);
+  async getBusCompletedTrips(@Req() req: any) {
+    const data = await this.paymentService.getBusCompletedTrips(req.user.id);
     return { data };
   }
 }

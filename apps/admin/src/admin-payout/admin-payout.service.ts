@@ -107,6 +107,9 @@ export class AdminPayoutService {
       receiptMime?: string;
     },
   ) {
+    if (!receipt?.receiptFile) {
+      throw new BadRequestException('يجب إرفاق إيصال الدفع');
+    }
     const trip = await this.prisma.trip.findUnique({
       where: { id: tripId },
       include: {
@@ -193,6 +196,9 @@ export class AdminPayoutService {
       receiptMime?: string;
     },
   ) {
+    if (!receipt?.receiptFile) {
+      throw new BadRequestException('يجب إرفاق إيصال الدفع');
+    }
     // Trip selection, total computation and record/items writes all run
     // inside one transaction serialized per company — concurrent payAll or
     // payTrip calls can never double-pay the same trips.

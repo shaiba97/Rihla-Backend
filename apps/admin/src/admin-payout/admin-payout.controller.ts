@@ -13,10 +13,10 @@ const payoutUpload = FileInterceptor('receiptFile', {
   storage: memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req: any, file: Express.Multer.File, cb: (err: Error | null, accept: boolean) => void) => {
-    if (/^image\/(jpeg|jpg|png|webp|heic)$/i.test(file.mimetype)) {
+    if (/^image\/(jpeg|jpg|png|webp|heic)$/i.test(file.mimetype) || file.mimetype === 'application/pdf') {
       cb(null, true);
     } else {
-      cb(new BadRequestException('نوع الملف غير مدعوم — JPEG, PNG, WebP, HEIC'), false);
+      cb(new BadRequestException('نوع الملف غير مدعوم — JPEG, PNG, WebP, HEIC, PDF'), false);
     }
   },
 });

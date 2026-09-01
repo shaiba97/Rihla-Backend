@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '@app/prisma';
+import { PDFService } from '@app/pdf';
 import { UsersService } from '../users/service/users.service';
 import type { Response } from 'express';
 
@@ -35,7 +36,71 @@ export class TicketsController {
     private readonly jwt: JwtService,
     private readonly prisma: PrismaService,
     private readonly usersService: UsersService,
+    private readonly pdfService: PDFService,
   ) {}
+
+  @Get('pdf/:id')
+  async getTicketPdf(
+    @Param('id') id: string,
+    @Query('token') token: string,
+    @Res() res: Response,
+  ) {
+    if (!token) throw new UnauthorizedException('Token is required');
+
+    let payload: any;
+    try {
+      payload = this.jwt.verify(token, { secret: process.env.JWT_SECRET! });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired token');
+    }
+
+    if (this.usersService.isTokenBlacklisted(token)) {
+      throw new UnauthorizedException('Invalid or expired token');
+    }
+
+    const booking = await this.prisma.booking.findUnique({
+      where: { id },
+      include: { TicketPDF: true },
+    });
+
+    if (!booking) throw new NotFoundException('Booking not found');
+    if (booking.customerId !== payload.id)
+      throw new UnauthorizedException('Not your ticket');
+    if (booking.status !== 'CONFIRMED')
+      throw new NotFoundException('No ticket available');
+
+    let pdfData = booking.TicketPDF?.pdfData ?? null;
+
+    // Re-generate on the fly if the ticket row is missing or was never
+    // persisted (e.g. rows created before this column existed, or when the
+    // ephemeral upload/ was wiped on a Render restart but no regeneration
+    // had run). This self-heals every existing confirmed booking.
+    if (!pdfData) {
+      const regenerated = await this.pdfService.generateTicket(id);
+      pdfData = regenerated.buffer?.toString('base64') ?? null;
+      if (pdfData) {
+        const data = {
+          ticketUrl: regenerated.publicUrl,
+          pdfData,
+          generatedAt: new Date(),
+        };
+        await this.prisma.ticketPDF.upsert({
+          where: { bookingId: id },
+          create: { bookingId: id, ...data },
+          update: data,
+        });
+      }
+    }
+
+    if (!pdfData)
+      throw new NotFoundException('Ticket PDF is not available');
+
+    const pdfBuffer = Buffer.from(pdfData, 'base64');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="ticket_${id}.pdf"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(pdfBuffer);
+  }
 
   @Get('html/:id')
   async getTicketHtml(

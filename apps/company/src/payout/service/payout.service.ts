@@ -86,7 +86,13 @@ export class PayoutService {
           where: { status: 'CONFIRMED' },
           include: { Payment: true },
         },
-        PayoutRecordItem: true,
+        PayoutRecordItem: {
+          include: {
+            PayoutRecord: {
+              select: { receiptFile: true, receiptData: true, receiptMime: true },
+            },
+          },
+        },
         PayoutRequest: {
           where: { status: { in: ['PENDING', 'APPROVED'] } },
         },
@@ -101,6 +107,17 @@ export class PayoutService {
       );
       const paidOut = trip.PayoutRecordItem.length > 0;
       const hasPendingRequest = trip.PayoutRequest.length > 0;
+
+      let receiptFile: string | null = null;
+      let receiptData: string | null = null;
+      let receiptMime: string | null = null;
+
+      if (paidOut && trip.PayoutRecordItem[0]?.PayoutRecord) {
+        const rec = trip.PayoutRecordItem[0].PayoutRecord;
+        receiptFile = rec.receiptFile ?? null;
+        receiptData = rec.receiptData ?? null;
+        receiptMime = rec.receiptMime ?? null;
+      }
 
       return {
         id: trip.id,
@@ -117,6 +134,9 @@ export class PayoutService {
           !hasPendingRequest &&
           totalRevenue > 0 &&
           this.isEligible(trip.departureDate, trip.departureTime),
+        receiptFile,
+        receiptData,
+        receiptMime,
       };
     });
   }
@@ -269,6 +289,8 @@ export class PayoutService {
       amount: Math.round(Number(r.amount)),
       note: r.note,
       receiptFile: r.receiptFile,
+      receiptData: r.receiptData,
+      receiptMime: r.receiptMime,
       createdAt: r.createdAt,
       items: r.Items.map((item) => ({
         trip: {

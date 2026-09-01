@@ -31,7 +31,7 @@ export class PDFService {
   async generateTicket(
     bookingId: string,
     paymentData?: any,
-  ): Promise<{ publicUrl: string; filePath: string }> {
+  ): Promise<{ publicUrl: string; filePath: string; buffer: Buffer | null }> {
     const outputDir = path.resolve(this.outputDir);
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
@@ -56,6 +56,7 @@ export class PDFService {
       throw new Error('الحجز غير موجود');
     }
 
+    let buffer: Buffer | null = null;
     try {
       const trip = payment.Booking.Trip;
       const bus = trip?.Bus;
@@ -99,15 +100,15 @@ export class PDFService {
       };
 
       const buf = await generateTicketBuffer(ticketData);
+      buffer = buf;
       fs.writeFileSync(outputPath, buf);
       this.logger.log(`Ticket saved -> ${outputPath} (${(buf.length / 1024).toFixed(1)} KB)`);
     } catch (error: any) {
       const errStack = error?.stack || error?.message || String(error);
       this.logger.error(`فشل في إنشاء ملف PDF للتذكرة ${bookingId}`, errStack);
-      fs.writeFileSync(outputPath, errStack);
     }
 
-    return { publicUrl, filePath: outputPath };
+    return { publicUrl, filePath: outputPath, buffer };
   }
 
   async generatePassengerList(

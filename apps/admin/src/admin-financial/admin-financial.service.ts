@@ -608,8 +608,26 @@ export class AdminFinancialService {
     try {
       const result = await this.pdfService.generateTicket(payment.bookingId);
       ticketUrl = result.publicUrl;
-    } catch {
+      const pdfData = result.buffer?.toString('base64') ?? null;
+      if (pdfData) {
+        const data = {
+          ticketUrl,
+          pdfData,
+          generatedAt: new Date(),
+        };
+        await this.prisma.ticketPDF.upsert({
+          where: { bookingId: payment.bookingId },
+          create: { bookingId: payment.bookingId, ...data },
+          update: data,
+        });
+      }
+    } catch (error: any) {
       /* PDF generation not critical */
+      new Logger('Ticket').warn(
+        `Ticket PDF persistence skipped for ${payment.bookingId}: ${
+          error?.message || error
+        }`,
+      );
     }
 
     this.evaluateAwards(customerId);

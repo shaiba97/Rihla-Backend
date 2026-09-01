@@ -17,6 +17,10 @@ async function run() {
     await client.query('ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "platformFeeAmount" DECIMAL(10,2)');
     console.log('OK: Payment.platformFeeAmount column ensured');
 
+    // 1be. Persist ticket PDF bytes in TicketPDF (durable downloads)
+    await client.query('ALTER TABLE "TicketPDF" ADD COLUMN IF NOT EXISTS "pdfData" TEXT');
+    console.log('OK: TicketPDF.pdfData column ensured');
+
     // 1c. Add Booking.cancellationReason if missing (schema drift — no migration)
     await client.query('ALTER TABLE "Booking" ADD COLUMN IF NOT EXISTS "cancellationReason" TEXT');
     console.log('OK: Booking.cancellationReason column ensured');
