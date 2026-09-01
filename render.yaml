@@ -2,7 +2,7 @@ services:
   - type: web
     name: rihla-backend
     runtime: docker
-    repo: https://github.com/shaiba97/Rihla-Backend
+    repo: https://github.com/shaiba97/app-backend
     branch: main
     dockerfilePath: ./Dockerfile
     dockerContext: .
