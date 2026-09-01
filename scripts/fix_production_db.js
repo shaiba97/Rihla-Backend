@@ -21,6 +21,12 @@ async function run() {
     await client.query('ALTER TABLE "TicketPDF" ADD COLUMN IF NOT EXISTS "pdfData" TEXT');
     console.log('OK: TicketPDF.pdfData column ensured');
 
+    // 1bf. Clear corrupted pdfData rows (JSON-object literals written by an
+    // older build that passed the raw Buffer). Legitimate base64-PDF strings
+    // never start with '{'. Next pdf/:id request regenerates a clean value.
+    await client.query(`UPDATE "TicketPDF" SET "pdfData" = NULL WHERE "pdfData" LIKE '{%'`);
+    console.log('OK: TicketPDF.pdfData corrupt rows cleared');
+
     // 1c. Add Booking.cancellationReason if missing (schema drift — no migration)
     await client.query('ALTER TABLE "Booking" ADD COLUMN IF NOT EXISTS "cancellationReason" TEXT');
     console.log('OK: Booking.cancellationReason column ensured');
