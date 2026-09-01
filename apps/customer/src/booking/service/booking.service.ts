@@ -612,7 +612,7 @@ export class BookingService {
       include: {
         Trip: { include: { Bus: true } },
         Payment: true,
-        TicketPDF: true,
+        TicketPDF: { select: { id: true, bookingId: true, ticketUrl: true, generatedAt: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -636,7 +636,7 @@ export class BookingService {
       include: {
         Trip: { include: { Bus: true } },
         Payment: true,
-        TicketPDF: true,
+        TicketPDF: { select: { id: true, bookingId: true, ticketUrl: true, generatedAt: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -656,7 +656,7 @@ export class BookingService {
       include: {
         Trip: { include: { Bus: true } },
         Payment: true,
-        TicketPDF: true,
+        TicketPDF: { select: { id: true, bookingId: true, ticketUrl: true, generatedAt: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -672,7 +672,7 @@ export class BookingService {
       include: {
         Trip: { include: { Bus: true } },
         Payment: true,
-        TicketPDF: true,
+        TicketPDF: { select: { id: true, bookingId: true, ticketUrl: true, generatedAt: true } },
       },
     });
 
@@ -699,7 +699,7 @@ export class BookingService {
       include: {
         Trip: { include: { Bus: true } },
         Payment: true,
-        TicketPDF: true,
+        TicketPDF: { select: { id: true, bookingId: true, ticketUrl: true, generatedAt: true } },
       },
     });
 

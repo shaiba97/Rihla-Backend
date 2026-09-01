@@ -58,18 +58,50 @@ export class TicketsController {
       throw new UnauthorizedException('Invalid or expired token');
     }
 
-    const booking = await this.prisma.booking.findUnique({
-      where: { id },
-      include: { TicketPDF: true },
-    });
+    // Use a raw-safe fetch for booking to avoid Prisma's pdfData decode
+    // blowing up on corrupt rows (Buffer stored as JSON object). Select
+    // TicketPDF without pdfData, then fetch pdfData via raw query.
+    let booking: any;
+    let pdfData: string | null = null;
+    try {
+      booking = await this.prisma.booking.findUnique({
+        where: { id },
+        include: { TicketPDF: { select: { id: true, bookingId: true, ticketUrl: true, generatedAt: true } } },
+      });
+    } catch (e: any) {
+      // Prisma decode failed due to corrupt pdfData — null it via raw SQL and retry
+      if (String(e?.message || '').includes('pdfData')) {
+        await this.prisma.$executeRawUnsafe(`UPDATE "TicketPDF" SET "pdfData" = NULL WHERE "bookingId" = $1`, id);
+        booking = await this.prisma.booking.findUnique({
+          where: { id },
+          include: { TicketPDF: { select: { id: true, bookingId: true, ticketUrl: true, generatedAt: true } } },
+        });
+        // Fetch pdfData separately via raw (bypass Prisma type)
+        const rows: any[] = await this.prisma.$queryRawUnsafe(`SELECT "pdfData" FROM "TicketPDF" WHERE "bookingId" = $1`, id);
+        pdfData = rows[0]?.pdfData ?? null;
+        // If raw also returns an object (JSON), coerce
+        if (pdfData && typeof pdfData === 'object') pdfData = String(pdfData);
+        if (pdfData && typeof pdfData === 'string' && pdfData.startsWith('{')) {
+          await this.prisma.$executeRawUnsafe(`UPDATE "TicketPDF" SET "pdfData" = NULL WHERE "bookingId" = $1`, id);
+          pdfData = null;
+        }
+      } else throw e;
+    }
+
+    // Fallback: if pdfData still not loaded (e.g. select excluded it), try raw
+    if (!pdfData && booking?.TicketPDF) {
+      try {
+        const rows: any[] = await this.prisma.$queryRawUnsafe(`SELECT "pdfData" FROM "TicketPDF" WHERE "bookingId" = $1`, id);
+        pdfData = rows[0]?.pdfData ?? null;
+        if (pdfData && typeof pdfData === 'object') pdfData = String(pdfData);
+      } catch {}
+    }
 
     if (!booking) throw new NotFoundException('Booking not found');
     if (booking.customerId !== payload.id)
       throw new UnauthorizedException('Not your ticket');
     if (booking.status !== 'CONFIRMED')
       throw new NotFoundException('No ticket available');
-
-    let pdfData = booking.TicketPDF?.pdfData ?? null;
 
     // Re-generate on the fly if the ticket row is missing or was never
     // persisted (e.g. rows created before this column existed, or when the
@@ -84,11 +116,23 @@ export class TicketsController {
           pdfData,
           generatedAt: new Date(),
         };
-        await this.prisma.ticketPDF.upsert({
-          where: { bookingId: id },
-          create: { bookingId: id, ...data },
-          update: data,
-        });
+        try {
+          await this.prisma.ticketPDF.upsert({
+            where: { bookingId: id },
+            create: { bookingId: id, ...data },
+            update: data,
+          });
+        } catch (e: any) {
+          // If upsert still fails due to corrupt existing row, clear and retry once
+          if (String(e?.message || '').includes('pdfData')) {
+            await this.prisma.$executeRawUnsafe(`UPDATE "TicketPDF" SET "pdfData" = NULL WHERE "bookingId" = $1`, id);
+            await this.prisma.ticketPDF.upsert({
+              where: { bookingId: id },
+              create: { bookingId: id, ...data },
+              update: data,
+            });
+          } else throw e;
+        }
       }
     }
 
@@ -122,14 +166,29 @@ export class TicketsController {
       throw new UnauthorizedException('Invalid or expired token');
     }
 
-    const booking = await this.prisma.booking.findUnique({
-      where: { id },
-      include: {
-        Trip: { include: { Bus: true } },
-        Payment: true,
-        TicketPDF: true,
-      },
-    });
+    let booking: any;
+    try {
+      booking = await this.prisma.booking.findUnique({
+        where: { id },
+        include: {
+          Trip: { include: { Bus: true } },
+          Payment: true,
+          TicketPDF: { select: { id: true, bookingId: true, ticketUrl: true, generatedAt: true } },
+        },
+      });
+    } catch (e: any) {
+      if (String(e?.message || '').includes('pdfData')) {
+        await this.prisma.$executeRawUnsafe(`UPDATE "TicketPDF" SET "pdfData" = NULL WHERE "bookingId" = $1`, id);
+        booking = await this.prisma.booking.findUnique({
+          where: { id },
+          include: {
+            Trip: { include: { Bus: true } },
+            Payment: true,
+            TicketPDF: { select: { id: true, bookingId: true, ticketUrl: true, generatedAt: true } },
+          },
+        });
+      } else throw e;
+    }
 
     if (!booking) throw new NotFoundException('Booking not found');
     if (booking.customerId !== payload.id)
