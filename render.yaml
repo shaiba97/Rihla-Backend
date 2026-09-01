@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: rihla-backend
+    name: app-backend
     runtime: docker
     repo: https://github.com/shaiba97/app-backend
     branch: main
@@ -26,17 +26,17 @@ services:
       # Redis
       - key: REDIS_HOST
         fromService:
-          name: rihla-redis
+          name: app-redis
           type: redis
           property: host
       - key: REDIS_PORT
         fromService:
-          name: rihla-redis
+          name: app-redis
           type: redis
           property: port
       - key: REDIS_PASSWORD
         fromService:
-          name: rihla-redis
+          name: app-redis
           type: redis
           property: password
       # WhatsApp (optional)
@@ -49,7 +49,7 @@ services:
         value: production
 
   - type: redis
-    name: rihla-redis
+    name: app-redis
     plan: free
     maxmemoryPolicy: noeviction
     ipAllowList: []
