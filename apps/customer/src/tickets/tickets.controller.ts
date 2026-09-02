@@ -3,6 +3,7 @@ import {
   Get,
   Param,
   Query,
+  Req,
   Res,
   NotFoundException,
   UnauthorizedException,
@@ -11,7 +12,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '@app/prisma';
 import { PDFService } from '@app/pdf';
 import { UsersService } from '../users/service/users.service';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 
 /** Escapes HTML-special characters in user-supplied values before they are
  *  interpolated into the ticket template (stored-XSS defense). */
@@ -43,8 +44,12 @@ export class TicketsController {
   async getTicketPdf(
     @Param('id') id: string,
     @Query('token') token: string,
+    @Req() req: Request,
     @Res() res: Response,
   ) {
+    const authHeader = req.headers.authorization;
+    token =
+      token ?? (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '');
     if (!token) throw new UnauthorizedException('Token is required');
 
     let payload: any;
@@ -144,8 +149,12 @@ export class TicketsController {
   async getTicketHtml(
     @Param('id') id: string,
     @Query('token') token: string,
+    @Req() req: Request,
     @Res() res: Response,
   ) {
+    const authHeader = req.headers.authorization;
+    token =
+      token ?? (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : '');
     if (!token) throw new UnauthorizedException('Token is required');
 
     let payload: any;
