@@ -504,6 +504,10 @@ export class TicketsController {
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
+    // The customer app renders the ticket view inside an <iframe>, which is
+    // blocked by the global X-Frame-Options: DENY set in main.ts. Remove it
+    // here (controller runs after that middleware) so the ticket can render.
+    res.removeHeader('X-Frame-Options');
     res.send(html);
   }
 }

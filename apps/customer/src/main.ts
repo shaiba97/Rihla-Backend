@@ -23,18 +23,12 @@ const logger = new Logger('Bootstrap');
 // ---- Minimal dependency-free HTTP hardening -------------------------------
 // Security headers (helmet is not installed; these cover the API essentials).
 function securityHeaders(
-  req: express.Request,
+  _req: express.Request,
   res: express.Response,
   next: express.NextFunction,
 ): void {
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  // The customer app renders the ticket view inside an <iframe>, which
-  // requires the response to be frameable. Exempt the ticket HTML route from
-  // X-Frame-Options so the ticket can be viewed; all other responses keep
-  // DENY. Match on any prefix /api-customer -> /api -> (none) via includes().
-  if (!req.path.includes('/tickets/html')) {
-    res.setHeader('X-Frame-Options', 'DENY');
-  }
+  res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   next();
 }
