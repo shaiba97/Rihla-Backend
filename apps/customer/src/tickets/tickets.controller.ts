@@ -70,7 +70,10 @@ export class TicketsController {
     try {
       booking = await this.prisma.booking.findUnique({
         where: { id },
-        include: { TicketPDF: { select: { id: true, bookingId: true, ticketUrl: true, generatedAt: true } } },
+        include: {
+          TicketPDF: { select: { id: true, bookingId: true, ticketUrl: true, generatedAt: true } },
+          Customer: { select: { name: true } },
+        },
       });
     } catch (e: any) {
       // Basic error handling - corruption-specific logic removed as root cause is fixed
@@ -139,8 +142,17 @@ export class TicketsController {
 
     // pdfData is now a Buffer (from Bytes column), use it directly
     const pdfBuffer = pdfData as Buffer;
+    const orderRef = booking.id.slice(0, 8).toUpperCase();
+    const custName = ((booking.Customer?.name ?? 'ticket') as string)
+      .replace(/["\\/\r\n]/g, '_')
+      .replace(/\s+/g, '_')
+      .trim();
+    const filename = `ticket_${orderRef}_${custName}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="ticket_${id}.pdf"`);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename}"`,
+    );
     res.setHeader('Cache-Control', 'no-store');
     res.send(pdfBuffer);
   }
