@@ -93,15 +93,21 @@ export class TicketsController {
       if (pdfBuffer) {
         const data = {
           ticketUrl: regenerated.publicUrl,
-          pdfData: pdfBuffer,
+          pdfData: pdfBuffer ? new Uint8Array(pdfBuffer) : null,
           generatedAt: new Date(),
         };
         try {
           await this.prisma.ticketPDF.upsert({
             where: { bookingId: id },
-            create: { bookingId: id, ...data },
+            create: {
+              ...data,
+              Booking: {
+                connect: { id: id }
+              }
+            },
             update: data,
           });
+          pdfData = pdfBuffer;
         } catch (e: any) {
           // General error handling for upsert failures - keeps retry logic as precaution
           // during schema migration period or for other unexpected issues
@@ -109,9 +115,15 @@ export class TicketsController {
             await this.prisma.$executeRawUnsafe(`UPDATE "TicketPDF" SET "pdfData" = NULL WHERE "bookingId" = $1`, id);
             await this.prisma.ticketPDF.upsert({
               where: { bookingId: id },
-              create: { bookingId: id, ...data },
+              create: {
+                ...data,
+                Booking: {
+                  connect: { id: id }
+                }
+              },
               update: data,
             });
+            pdfData = pdfBuffer;
           } else throw e;
         }
       }

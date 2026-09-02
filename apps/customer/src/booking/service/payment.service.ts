@@ -346,16 +346,18 @@ export class PaymentService {
           where: { bookingId: booking.id },
           data: {
             ticketUrl: ticketResult.publicUrl,
-            ...(pdfBuffer ? { pdfData: pdfBuffer } : {}),
+            ...(pdfBuffer ? { pdfData: new Uint8Array(pdfBuffer) } : {}),
             generatedAt: new Date(),
           },
         })
       : await this.prisma.ticketPDF.create({
           data: {
-            bookingId: booking.id,
             ticketUrl: ticketResult.publicUrl,
-            ...(pdfBuffer ? { pdfData: pdfBuffer } : {}),
+            ...(pdfBuffer ? { pdfData: new Uint8Array(pdfBuffer) } : {}),
             generatedAt: new Date(),
+            Booking: {
+              connect: { id: booking.id }
+            },
           },
         });
 
