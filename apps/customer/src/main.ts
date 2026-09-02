@@ -31,8 +31,8 @@ function securityHeaders(
   // The customer app renders the ticket view inside an <iframe>, which
   // requires the response to be frameable. Exempt the ticket HTML route from
   // X-Frame-Options so the ticket can be viewed; all other responses keep
-  // DENY. (Path is matched after nginx rewrites /api-customer -> /api.)
-  if (!/^\/(api|api-customer)\/tickets\/html\//.test(req.path)) {
+  // DENY. Match on any prefix /api-customer -> /api -> (none) via includes().
+  if (!req.path.includes('/tickets/html')) {
     res.setHeader('X-Frame-Options', 'DENY');
   }
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');

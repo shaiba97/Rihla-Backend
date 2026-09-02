@@ -143,15 +143,22 @@ export class TicketsController {
     // pdfData is now a Buffer (from Bytes column), use it directly
     const pdfBuffer = pdfData as Buffer;
     const orderRef = booking.id.slice(0, 8).toUpperCase();
-    const custName = ((booking.Customer?.name ?? 'ticket') as string)
+    // Customer names may contain non-ASCII (Arabic) characters, which Node
+    // rejects in a raw HTTP header value. Keep `filename` ASCII-only and carry
+    // the full, percent-encoded name in RFC 5987 `filename*` (UTF-8) so
+    // capable browsers still save an identifiable, named file.
+    const nameForFile = `ticket_${orderRef}_${(booking.Customer?.name ?? 'ticket') as string}`;
+    const asciiName = nameForFile
+      .replace(/[^\x20-\x7E]/g, '_')
       .replace(/["\\/\r\n]/g, '_')
       .replace(/\s+/g, '_')
-      .trim();
-    const filename = `ticket_${orderRef}_${custName}.pdf`;
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '');
+    const encodedName = encodeURIComponent(nameForFile);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${filename}"`,
+      `attachment; filename="${asciiName}.pdf"; filename*=UTF-8''${encodedName}.pdf`,
     );
     res.setHeader('Cache-Control', 'no-store');
     res.send(pdfBuffer);
