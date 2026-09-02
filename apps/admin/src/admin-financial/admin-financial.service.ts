@@ -612,7 +612,7 @@ export class AdminFinancialService {
       if (pdfBuffer) {
         const data = {
           ticketUrl,
-          pdfData: pdfBuffer,
+          pdfData: new Uint8Array(pdfBuffer),
           generatedAt: new Date(),
         };
         await this.prisma.ticketPDF.upsert({
