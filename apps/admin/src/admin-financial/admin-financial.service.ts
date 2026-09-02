@@ -608,11 +608,11 @@ export class AdminFinancialService {
     try {
       const result = await this.pdfService.generateTicket(payment.bookingId);
       ticketUrl = result.publicUrl;
-      const pdfData = result.buffer?.toString('base64') ?? null;
-      if (pdfData) {
+      const pdfBuffer = result.buffer ?? null;
+      if (pdfBuffer) {
         const data = {
           ticketUrl,
-          pdfData,
+          pdfData: pdfBuffer,
           generatedAt: new Date(),
         };
         await this.prisma.ticketPDF.upsert({

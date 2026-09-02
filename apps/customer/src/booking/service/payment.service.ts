@@ -339,14 +339,14 @@ export class PaymentService {
       where: { bookingId: booking.id },
     });
 
-    const pdfData = ticketResult.buffer?.toString('base64') ?? null;
+    const pdfBuffer = ticketResult.buffer ?? null;
 
     const ticketRecord = existingTicket
       ? await this.prisma.ticketPDF.update({
           where: { bookingId: booking.id },
           data: {
             ticketUrl: ticketResult.publicUrl,
-            ...(pdfData ? { pdfData } : {}),
+            ...(pdfBuffer ? { pdfData: pdfBuffer } : {}),
             generatedAt: new Date(),
           },
         })
@@ -354,7 +354,7 @@ export class PaymentService {
           data: {
             bookingId: booking.id,
             ticketUrl: ticketResult.publicUrl,
-            ...(pdfData ? { pdfData } : {}),
+            ...(pdfBuffer ? { pdfData: pdfBuffer } : {}),
             generatedAt: new Date(),
           },
         });

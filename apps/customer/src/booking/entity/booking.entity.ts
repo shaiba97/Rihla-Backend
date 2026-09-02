@@ -27,5 +27,7 @@ export class TicketPDFEntity {
   id: string;
   bookingId: string;
   ticketUrl: string;
+  // Note: pdfData is omitted here as it's typically binary data not sent in API responses
+  // The actual database entity includes: pdfData: Buffer | null
   generatedAt: Date;
 }

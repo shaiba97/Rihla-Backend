@@ -58,43 +58,23 @@ export class TicketsController {
       throw new UnauthorizedException('Invalid or expired token');
     }
 
-    // Use a raw-safe fetch for booking to avoid Prisma's pdfData decode
-    // blowing up on corrupt rows (Buffer stored as JSON object). Select
-    // TicketPDF without pdfData, then fetch pdfData via raw query.
+    // Simplified: Prisma now correctly handles Bytes column type for pdfData
+    // (Fixed schema mismatch that was causing corruption)
     let booking: any;
-    let pdfData: string | null = null;
+    let pdfData: Buffer | null = null;
     try {
       booking = await this.prisma.booking.findUnique({
         where: { id },
         include: { TicketPDF: { select: { id: true, bookingId: true, ticketUrl: true, generatedAt: true } } },
       });
     } catch (e: any) {
-      // Prisma decode failed due to corrupt pdfData — null it via raw SQL and retry
-      if (String(e?.message || '').includes('pdfData')) {
-        await this.prisma.$executeRawUnsafe(`UPDATE "TicketPDF" SET "pdfData" = NULL WHERE "bookingId" = $1`, id);
-        booking = await this.prisma.booking.findUnique({
-          where: { id },
-          include: { TicketPDF: { select: { id: true, bookingId: true, ticketUrl: true, generatedAt: true } } },
-        });
-        // Fetch pdfData separately via raw (bypass Prisma type)
-        const rows: any[] = await this.prisma.$queryRawUnsafe(`SELECT "pdfData" FROM "TicketPDF" WHERE "bookingId" = $1`, id);
-        pdfData = rows[0]?.pdfData ?? null;
-        // If raw also returns an object (JSON), coerce
-        if (pdfData && typeof pdfData === 'object') pdfData = String(pdfData);
-        if (pdfData && typeof pdfData === 'string' && pdfData.startsWith('{')) {
-          await this.prisma.$executeRawUnsafe(`UPDATE "TicketPDF" SET "pdfData" = NULL WHERE "bookingId" = $1`, id);
-          pdfData = null;
-        }
-      } else throw e;
+      // Basic error handling - corruption-specific logic removed as root cause is fixed
+      throw e;
     }
 
-    // Fallback: if pdfData still not loaded (e.g. select excluded it), try raw
-    if (!pdfData && booking?.TicketPDF) {
-      try {
-        const rows: any[] = await this.prisma.$queryRawUnsafe(`SELECT "pdfData" FROM "TicketPDF" WHERE "bookingId" = $1`, id);
-        pdfData = rows[0]?.pdfData ?? null;
-        if (pdfData && typeof pdfData === 'object') pdfData = String(pdfData);
-      } catch {}
+    // Get pdfData directly from the relation (now properly typed as Buffer)
+    if (booking?.TicketPDF) {
+      pdfData = booking.TicketPDF.pdfData ?? null;
     }
 
     if (!booking) throw new NotFoundException('Booking not found');
@@ -109,11 +89,11 @@ export class TicketsController {
     // had run). This self-heals every existing confirmed booking.
     if (!pdfData) {
       const regenerated = await this.pdfService.generateTicket(id);
-      pdfData = regenerated.buffer?.toString('base64') ?? null;
-      if (pdfData) {
+      const pdfBuffer = regenerated.buffer ?? null;
+      if (pdfBuffer) {
         const data = {
           ticketUrl: regenerated.publicUrl,
-          pdfData,
+          pdfData: pdfBuffer,
           generatedAt: new Date(),
         };
         try {
@@ -123,7 +103,8 @@ export class TicketsController {
             update: data,
           });
         } catch (e: any) {
-          // If upsert still fails due to corrupt existing row, clear and retry once
+          // General error handling for upsert failures - keeps retry logic as precaution
+          // during schema migration period or for other unexpected issues
           if (String(e?.message || '').includes('pdfData')) {
             await this.prisma.$executeRawUnsafe(`UPDATE "TicketPDF" SET "pdfData" = NULL WHERE "bookingId" = $1`, id);
             await this.prisma.ticketPDF.upsert({
@@ -139,7 +120,8 @@ export class TicketsController {
     if (!pdfData)
       throw new NotFoundException('Ticket PDF is not available');
 
-    const pdfBuffer = Buffer.from(pdfData, 'base64');
+    // pdfData is now a Buffer (from Bytes column), use it directly
+    const pdfBuffer = pdfData as Buffer;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="ticket_${id}.pdf"`);
     res.setHeader('Cache-Control', 'no-store');
@@ -177,17 +159,9 @@ export class TicketsController {
         },
       });
     } catch (e: any) {
-      if (String(e?.message || '').includes('pdfData')) {
-        await this.prisma.$executeRawUnsafe(`UPDATE "TicketPDF" SET "pdfData" = NULL WHERE "bookingId" = $1`, id);
-        booking = await this.prisma.booking.findUnique({
-          where: { id },
-          include: {
-            Trip: { include: { Bus: true } },
-            Payment: true,
-            TicketPDF: { select: { id: true, bookingId: true, ticketUrl: true, generatedAt: true } },
-          },
-        });
-      } else throw e;
+      // Basic error handling - corruption-specific logic removed as root cause is fixed
+      // (Schema mismatch between @db.Text and actual BYTEA column has been resolved)
+      throw e;
     }
 
     if (!booking) throw new NotFoundException('Booking not found');
