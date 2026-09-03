@@ -6,7 +6,7 @@ import { UsersService } from '../service/users.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(private readonly usersService: UsersService: UsersService) {
+  constructor(private readonly usersService: UsersService) {
     const secret = process.env.JWT_SECRET;
     if (!secret) {
       throw new Error('JWT_SECRET environment variable is not defined. Please set it in your .env file or environment.');
