@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { SupportContactsService } from './support-contacts.service';
 
@@ -13,12 +22,24 @@ export class SupportContactsController {
   }
 
   @Post()
-  create(@Body() body: { type: string; value: string; label?: string; isActive?: boolean }) {
+  create(
+    @Body()
+    body: {
+      type: string;
+      value: string;
+      label?: string;
+      isActive?: boolean;
+    },
+  ) {
     return this.svc.create(body);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() body: { type?: string; value?: string; label?: string; isActive?: boolean }) {
+  update(
+    @Param('id') id: string,
+    @Body()
+    body: { type?: string; value?: string; label?: string; isActive?: boolean },
+  ) {
     return this.svc.update(id, body);
   }
 

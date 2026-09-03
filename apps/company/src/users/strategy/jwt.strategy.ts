@@ -6,10 +6,18 @@ import { UsersService } from '../service/users.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(private readonly usersService: UsersService) {
+  constructor(private readonly usersService: UsersService: UsersService) {
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      throw new Error('JWT_SECRET environment variable is not defined. Please set it in your .env file or environment.');
+    }
+    if (secret.trim() === '') {
+      throw new Error('JWT_SECRET environment variable is empty. Please set a valid secret key.');
+    }
+
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      secretOrKey: process.env.JWT_SECRET!,
+      secretOrKey: secret,
       algorithms: ['HS256'],
       passReqToCallback: true,
     });
@@ -18,7 +26,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(req: Request, payload: any) {
     const token = ExtractJwt.fromAuthHeaderAsBearerToken()(req);
     if (token && this.usersService.isTokenBlacklisted(token)) {
-      throw new UnauthorizedException('انتهت جلسة تسجيل الدخول — يرجى تسجيل الدخول مجدداً');
+      throw new UnauthorizedException(
+        'انتهت جلسة تسجيل الدخول — يرجى تسجيل الدخول مجدداً',
+      );
     }
     return payload;
   }

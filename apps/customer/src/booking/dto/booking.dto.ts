@@ -149,7 +149,14 @@ export class CreateBookingWithPaymentDto {
   @Min(1, { each: true })
   @Transform(({ value }) =>
     typeof value === 'string'
-      ? (() => { try { const p = JSON.parse(value); return Array.isArray(p) ? p.map(Number) : []; } catch { return []; } })()
+      ? (() => {
+          try {
+            const p = JSON.parse(value);
+            return Array.isArray(p) ? p.map(Number) : [];
+          } catch {
+            return [];
+          }
+        })()
       : value,
   )
   seatNumbers: number[];
@@ -161,7 +168,13 @@ export class CreateBookingWithPaymentDto {
   @IsArray()
   @Transform(({ value }) =>
     typeof value === 'string'
-      ? (() => { try { return JSON.parse(value); } catch { return []; } })()
+      ? (() => {
+          try {
+            return JSON.parse(value);
+          } catch {
+            return [];
+          }
+        })()
       : value,
   )
   passenger: any[];

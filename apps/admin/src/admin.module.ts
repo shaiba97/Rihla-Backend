@@ -16,7 +16,21 @@ import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 
 @Module({
-  imports: [UsersModule, PlatformFeeModule, PaymentAccountsModule, ExpenseModule, AdminFinancialModule, AdminUsersModule, SupportContactsModule, AwardModule, BlogModule, NotificationsModule, AdminPayoutModule, TafiyaWsModule, CitiesModule],
+  imports: [
+    UsersModule,
+    PlatformFeeModule,
+    PaymentAccountsModule,
+    ExpenseModule,
+    AdminFinancialModule,
+    AdminUsersModule,
+    SupportContactsModule,
+    AwardModule,
+    BlogModule,
+    NotificationsModule,
+    AdminPayoutModule,
+    TafiyaWsModule,
+    CitiesModule,
+  ],
   controllers: [AdminController],
   providers: [AdminService],
 })

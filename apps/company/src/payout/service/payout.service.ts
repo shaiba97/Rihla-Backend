@@ -89,7 +89,11 @@ export class PayoutService {
         PayoutRecordItem: {
           include: {
             PayoutRecord: {
-              select: { receiptFile: true, receiptData: true, receiptMime: true },
+              select: {
+                receiptFile: true,
+                receiptData: true,
+                receiptMime: true,
+              },
             },
           },
         },

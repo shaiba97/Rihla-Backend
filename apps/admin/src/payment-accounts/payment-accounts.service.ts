@@ -1,11 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common'; import { PrismaService } from '@app/prisma'; import { TafiyaWsGateway, WS_EVENTS } from '@app/websocket';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '@app/prisma';
+import { TafiyaWsGateway, WS_EVENTS } from '@app/websocket';
 @Injectable()
 export class PaymentAccountsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly wsGateway: TafiyaWsGateway,
   ) {}
-  async getAll() { return this.prisma.paymentAccount.findMany({ orderBy: { createdAt: 'desc' } }); }
+  async getAll() {
+    return this.prisma.paymentAccount.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+  }
   async create(data: any) {
     if (!data.gatewayKey) data.gatewayKey = data.gatewayName;
     const account = await this.prisma.paymentAccount.create({ data });
@@ -14,13 +20,19 @@ export class PaymentAccountsService {
   }
   async update(id: string, data: any) {
     await this.findOne(id);
-    const account = await this.prisma.paymentAccount.update({ where: { id }, data });
+    const account = await this.prisma.paymentAccount.update({
+      where: { id },
+      data,
+    });
     this.wsGateway.emitPublic(WS_EVENTS.ACCOUNT_UPDATED, account);
     return account;
   }
   async toggleActive(id: string) {
     const a = await this.findOne(id);
-    const account = await this.prisma.paymentAccount.update({ where: { id }, data: { isActive: !a.isActive } });
+    const account = await this.prisma.paymentAccount.update({
+      where: { id },
+      data: { isActive: !a.isActive },
+    });
     this.wsGateway.emitPublic(WS_EVENTS.ACCOUNT_TOGGLED, account);
     return account;
   }
@@ -30,5 +42,9 @@ export class PaymentAccountsService {
     this.wsGateway.emitToAdmin(WS_EVENTS.ACCOUNT_DELETED, { id });
     return account;
   }
-  private async findOne(id: string) { const a = await this.prisma.paymentAccount.findUnique({ where: { id } }); if (!a) throw new NotFoundException('غير موجود'); return a; }
+  private async findOne(id: string) {
+    const a = await this.prisma.paymentAccount.findUnique({ where: { id } });
+    if (!a) throw new NotFoundException('غير موجود');
+    return a;
+  }
 }

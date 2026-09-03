@@ -16,7 +16,10 @@ export class PaymentController {
   @Get('performance')
   @UseGuards(AuthGuard('jwt'))
   async getPerformance(@Req() req: any, @Query('period') period: string) {
-    const data = await this.paymentService.getPerformance(req.user.id, (period ?? 'monthly') as any);
+    const data = await this.paymentService.getPerformance(
+      req.user.id,
+      (period ?? 'monthly') as any,
+    );
     return { data };
   }
 

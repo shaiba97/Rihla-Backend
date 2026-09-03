@@ -56,7 +56,11 @@ export class NotificationsService {
       this.sendPushNotification(data.userId, {
         title: data.title,
         body: data.body,
-        data: { notificationId: notification.id, type: data.type, ...(data.data ?? {}) },
+        data: {
+          notificationId: notification.id,
+          type: data.type,
+          ...(data.data ?? {}),
+        },
       });
     }
 
@@ -77,7 +81,9 @@ export class NotificationsService {
         tokens.map((t: { token: string }) => t.token),
         msg,
       );
-    } catch { /* silent */ }
+    } catch {
+      /* silent */
+    }
   }
 
   async findByUser(userId: string, limit: number = 30) {

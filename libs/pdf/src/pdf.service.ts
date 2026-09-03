@@ -3,35 +3,80 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { PrismaService } from '@app/prisma';
 
-import pdfMake from 'pdfmake';
+import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
 
-interface TFontDictionary {
-  [key: string]: {
-    normal: string;
-    bold: string;
+// The following JS-only packages ship no type definitions; load them via
+// require so the build does not need ambient module declarations.
+/* eslint-disable @typescript-eslint/no-require-imports */
+const fontkit: any = require('@pdf-lib/fontkit');
+
+const arabicReshaper: {
+  convertArabic(text: string): string;
+} = require('arabic-reshaper');
+
+const bidiFactory: () => {
+  getEmbeddingLevels(
+    text: string,
+    direction?: 'ltr' | 'rtl',
+  ): {
+    levels: Uint8Array;
+    paragraphs: { start: number; end: number; level: number }[];
   };
+  getReorderSegments(
+    text: string,
+    embeddingLevels: any,
+    lineStart?: number,
+    lineEnd?: number,
+  ): [number, number][];
+} = require('bidi-js');
+
+const QRCode: {
+  toBuffer(text: string, options?: any): Promise<Buffer>;
+} = require('qrcode');
+/* eslint-enable @typescript-eslint/no-require-imports */
+
+const bidi = bidiFactory();
+
+// ─────────────────────────────────────────────────────────────
+// DESIGN TOKENS  (mapped from the approved HTML ticket design)
+// ─────────────────────────────────────────────────────────────
+const C = {
+  primary: hex('00685f'),
+  primaryContainer: hex('008378'),
+  tertiary: hex('008374'),
+  onSurfaceVariant: hex('3d4947'),
+  surfaceContainerLow: hex('e9f6f3'),
+  outlineVariant: hex('bcc9c6'),
+  onPrimary: hex('ffffff'),
+  textPrimary: hex('134E4A'),
+  gray: hex('6B7280'),
+  secondary: hex('316763'),
+  onSecondaryContainer: hex('376d69'),
+  secondaryContainer: hex('b5ede7'),
+};
+
+interface TicketData {
+  bookingId: string;
+  customerName?: string;
+  bus?: any;
+  trip?: any;
+  passengers?: any[];
+  payment?: any;
+  seatNumbers?: number[];
+  qrData?: string;
 }
 
 @Injectable()
 export class PDFService {
-
   private readonly logger = new Logger(PDFService.name);
   private outputDir = './upload';
-  constructor(private readonly prisma: PrismaService) {
-    const fontsDir = path.resolve(process.cwd(), 'fonts');
-    const fonts: TFontDictionary = {
-      Tajawal: {
-        normal: path.join(fontsDir, 'Tajawal-Regular.ttf'),
-        bold: path.join(fontsDir, 'Tajawal-Bold.ttf'),
-      },
-    };
-    pdfMake.fonts = fonts;
-  }
+  constructor(private readonly prisma: PrismaService) {}
 
   async generateTicket(
     bookingId: string,
     paymentData?: any,
   ): Promise<{ publicUrl: string; filePath: string; buffer: Buffer | null }> {
+    void paymentData;
     const outputDir = path.resolve(this.outputDir);
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
@@ -46,6 +91,7 @@ export class PDFService {
       include: {
         Booking: {
           include: {
+            Customer: { select: { name: true } },
             Trip: { include: { Bus: true } },
           },
         },
@@ -58,51 +104,34 @@ export class PDFService {
 
     let buffer: Buffer | null = null;
     try {
-      const trip = payment.Booking.Trip;
+      const booking = payment.Booking;
+      const trip = booking.Trip;
       const bus = trip?.Bus;
-      const seatNumbers = (payment.Booking.seatNumbers ?? []) as number[];
-      const passengers = (payment.Booking.passenger ?? []) as any[];
+      const passengers = (booking.passenger ?? []) as any[];
 
-      const passengerData = passengers.map((p: any, i: number) => ({
-        name: p.name || '',
-        age: p.age || 0,
-        gender: p.gender || 'MALE',
-        seatNumber: seatNumbers[i] || i + 1,
-      }));
-
-      const ticketData: any = {
+      const ticketData: TicketData = {
         bookingId,
-        bus: bus
-          ? { name: bus.name, plateNumbers: bus.plate, chairs: bus.chairs }
-          : undefined,
-        trip: trip
-          ? {
-              departureDate: trip.departureDate,
-              departureTime: trip.departureTime,
-              arrivalDate: trip.arrivalDate,
-              arrivalTime: trip.arrivalTime,
-              fromState: trip.fromState,
-              fromCity: trip.fromCity,
-              fromStation: trip.fromStation,
-              toState: trip.toState,
-              toCity: trip.toCity,
-              toStation: trip.toStation,
-              price: trip.price,
-              status: trip.status,
-            }
-          : undefined,
-        passengers: passengerData,
+        customerName: booking.Customer?.name ?? '',
+        bus,
+        trip,
+        passengers,
+        seatNumbers: booking.seatNumbers ?? [],
         payment: {
           platformFeeAmount: payment.platformFeeAmount ?? 0,
           companyAmount: payment.companyAmount ?? 0,
           totalAmount: payment.totalAmount ?? 0,
+          price: payment.price ?? 0,
+          currency: payment.currency ?? 'جنيه سوداني',
         },
+        qrData: `BOOKING:${bookingId}`,
       };
 
       const buf = await generateTicketBuffer(ticketData);
-      buffer = buf;
-      fs.writeFileSync(outputPath, buf);
-      this.logger.log(`Ticket saved -> ${outputPath} (${(buf.length / 1024).toFixed(1)} KB)`);
+      buffer = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+      fs.writeFileSync(outputPath, buffer);
+      this.logger.log(
+        `Ticket saved -> ${outputPath} (${(buffer.length / 1024).toFixed(1)} KB)`,
+      );
     } catch (error: any) {
       const errStack = error?.stack || error?.message || String(error);
       this.logger.error(`فشل في إنشاء ملف PDF للتذكرة ${bookingId}`, errStack);
@@ -125,9 +154,7 @@ export class PDFService {
     const publicUrl = `/upload/${filename}`;
 
     try {
-      const logoBase64 = loadLogoBase64();
-
-      const passengerRows = bookings.flatMap((b: any) => {
+      const passengerRows = (bookings || []).flatMap((b: any) => {
         const seats = (b.seatNumbers ?? []) as number[];
         const passengers = (b.passenger ?? []) as any[];
         return passengers.map((p: any, i: number) => ({
@@ -139,90 +166,17 @@ export class PDFService {
         }));
       });
 
-      const header = [
-        { text: '#', font: 'Tajawal', bold: true, fontSize: 9, color: C.white, fillColor: C.primary, alignment: 'center', margin: [0, 4, 0, 4] },
-        { text: 'المقعد', font: 'Tajawal', bold: true, fontSize: 9, color: C.white, fillColor: C.primary, alignment: 'center', margin: [0, 4, 0, 4] },
-        { text: 'الجنس', font: 'Tajawal', bold: true, fontSize: 9, color: C.white, fillColor: C.primary, alignment: 'center', margin: [0, 4, 0, 4] },
-        { text: 'العمر', font: 'Tajawal', bold: true, fontSize: 9, color: C.white, fillColor: C.primary, alignment: 'center', margin: [0, 4, 0, 4] },
-        { text: 'جهة الاتصال', font: 'Tajawal', bold: true, fontSize: 9, color: C.white, fillColor: C.primary, alignment: 'center', margin: [0, 4, 0, 4] },
-        { text: 'اسم الراكب', font: 'Tajawal', bold: true, fontSize: 9, color: C.white, fillColor: C.primary, alignment: 'right', margin: [0, 4, 4, 4] },
-      ];
-
-      const rows = passengerRows.map((p: any, i: number) => {
-        const isEven = i % 2 === 0;
-        const fill = isEven ? C.bgCard : C.bgBase;
-        const cell = (txt: string, align = 'center') => ({
-          text: String(txt ?? '—'),
-          font: 'Tajawal' as any,
-          fontSize: 9,
-          color: C.textPrimary,
-          fillColor: fill,
-          alignment: align as any,
-          margin: [0, 4, 0, 4],
-        });
-        return [
-          cell(toAr(i + 1)),
-          { ...cell(toAr(p.seatNumber)), bold: true, color: C.primary },
-          cell(genderLabel(p.gender)),
-          cell(toAr(p.age)),
-          cell(p.contact),
-          { ...cell(p.name, 'right'), bold: true, margin: [0, 4, 4, 4] },
-        ];
-      });
-
-      const docDefinition: any = {
-        pageSize: 'A4',
-        pageOrientation: 'landscape',
-        pageMargins: [24, 24, 24, 24],
-        defaultStyle: {
-          font: 'Tajawal',
-          fontSize: 10,
-          color: C.textPrimary,
-          alignment: 'right',
-        },
-        background: (currentPage: any, pageSize: any) => ({
-          canvas: [{
-            type: 'rect', x: 0, y: 0,
-            w: pageSize.width, h: pageSize.height,
-            color: C.bgBase,
-          }],
-        }),
-        content: [
-          buildHeader(logoBase64),
-          {
-            text: `قائمة الركاب — ${trip.fromCity || ''} → ${trip.toCity || ''}`,
-            font: 'Tajawal', bold: true, fontSize: 14,
-            color: C.textPrimary, alignment: 'right',
-            margin: [0, 0, 0, 12],
-          },
-          {
-            table: {
-              widths: [20, 40, 40, 36, '*', '*'],
-              headerRows: 1,
-              body: [header, ...rows],
-            },
-            layout: {
-              hLineWidth: (i: number) => i <= 1 ? 1 : 0.5,
-              vLineWidth: () => 0.5,
-              hLineColor: () => C.border,
-              vLineColor: () => C.border,
-              paddingTop: () => 0,
-              paddingBottom: () => 0,
-              paddingLeft: () => 4,
-              paddingRight: () => 4,
-            },
-          },
-          buildFooter(trip.id),
-        ],
-      };
-
-      const pdfDoc = pdfMake.createPdf(docDefinition as any);
-      const buf = await pdfDoc.getBuffer();
-      fs.writeFileSync(outputPath, buf);
-      this.logger.log(`Passenger list saved -> ${outputPath} (${(buf.length / 1024).toFixed(1)} KB)`);
+      const buf = await generatePassengerListBuffer(trip, passengerRows);
+      fs.writeFileSync(outputPath, Buffer.from(buf));
+      this.logger.log(
+        `Passenger list saved -> ${outputPath} (${(buf.length / 1024).toFixed(1)} KB)`,
+      );
     } catch (error: any) {
       const errStack = error?.stack || error?.message || String(error);
-      this.logger.error(`فشل في إنشاء ملف PDF لقائمة الركاب ${trip.id}`, errStack);
+      this.logger.error(
+        `فشل في إنشاء ملف PDF لقائمة الركاب ${trip.id}`,
+        errStack,
+      );
       fs.writeFileSync(outputPath, 'PDF placeholder');
     }
 
@@ -230,48 +184,88 @@ export class PDFService {
   }
 }
 
-/**
- * Tafiya (تفية) — Ticket Generator
- * pdfMake | Arabic RTL | Tajawal Font
- *
- * Usage (NestJS / Node.js):
- *   const { generateTicketBuffer } = require('./generateTicket');
- *   const buf = await generateTicketBuffer({ bus, trip, passengers, payment, bookingId });
- *   res.set({ 'Content-Type': 'application/pdf', ... });
- *   res.send(buf);
- */
+// ─────────────────────────────────────────────────────────────
+// COLOR / NUMBER HELPERS
+// ─────────────────────────────────────────────────────────────
+function hex(v: string) {
+  const n = parseInt(v.replace('#', ''), 16);
+  return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
+}
 
-// 'use strict';
+function toAr(n: any) {
+  return String(n ?? '').replace(/[0-9]/g, (d: string) => '٠١٢٣٤٥٦٧٨٩'[+d]);
+}
 
-// const pdfMake = require('pdfmake/build/pdfmake');
-// const fs      = require('fs');
-// const path    = require('path');
+/** "2026-01-15" → "٢٥ / ١٠ / ٢٠٢٣" style (dd / mm / yyyy) */
+function formatDateShort(val: any) {
+  if (!val) return '—';
+  const d = val instanceof Date ? val : new Date(val);
+  if (isNaN(d as any)) return String(val);
+  const dd = toAr(String(d.getDate()).padStart(2, '0'));
+  const mm = toAr(String(d.getMonth() + 1).padStart(2, '0'));
+  const yy = toAr(String(d.getFullYear()));
+  return `${dd} / ${mm} / ${yy}`;
+}
+
+/** "07:30" or Date → "٠٩:٠٠ ص" */
+function formatTime(val: any) {
+  if (!val) return '—';
+  let h: number, m: number;
+  if (typeof val === 'string' && /^\d{1,2}:\d{2}/.test(val)) {
+    [h, m] = val.split(':').map(Number);
+  } else {
+    const d = val instanceof Date ? val : new Date(val);
+    h = d.getHours();
+    m = d.getMinutes();
+  }
+  const period = h < 12 ? 'ص' : 'م';
+  const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
+  return `${toAr(String(h12).padStart(2, '0'))}:${toAr(String(m).padStart(2, '0'))} ${period}`;
+}
+
+/** 465 → "٤٦٥٫٠٠ جنيه سوداني" */
+function formatMoney(amount: any, currency = 'جنيه سوداني') {
+  if (amount == null || amount === '') return '—';
+  const n = Number(amount);
+  const fixed = n.toFixed(2).replace('.', '٫');
+  return `${toAr(fixed)} ${currency}`;
+}
+
+function genderLabel(g: any) {
+  const map: Record<string, string> = {
+    MALE: 'ذكر',
+    FEMALE: 'أنثى',
+    male: 'ذكر',
+    female: 'أنثى',
+    M: 'ذكر',
+    F: 'أنثى',
+  };
+  return map[g] || g || '—';
+}
 
 // ─────────────────────────────────────────────────────────────
-// COLORS  (matches CSS variables)
+// ARABIC SHAPING + BIDI  (pdf-lib has no shaping; fonts must be
+// pre-shaped and reordered into visual order before drawing)
 // ─────────────────────────────────────────────────────────────
-const C = {
-  primary:      '#0D9488',
-  textPrimary:  '#134E4A',
-  primaryHover: '#0F766E',
-  primaryLight: '#CCFBF1',
-  primaryMuted: '#5EEAD4',
-  bgBase:       '#F0FDFA',
-  bgCard:       '#FFFFFF',
-  border:       '#99F6E4',
-  white:        '#FFFFFF',
-  gray:         '#6B7280',
-  lightGray:    '#F3F4F6',
-  darkText:     '#1F2937',
-  danger:       '#DC2626',
-  warning:      '#D97706',
-  success:      '#059669',
-};
+function asVisual(text: any): string {
+  if (text == null || text === '') return '';
+  const src = String(text);
+  const shaped = arabicReshaper.convertArabic(src);
+  const embedding = bidi.getEmbeddingLevels(shaped, 'rtl');
+  const chars = shaped.split('');
+  bidi
+    .getReorderSegments(shaped, embedding)
+    .forEach(([s, e]: [number, number]) => {
+      const seg = chars.slice(s, e + 1).reverse();
+      for (let i = s; i <= e; i++) chars[i] = seg[i - s];
+    });
+  return chars.join('');
+}
 
 // ─────────────────────────────────────────────────────────────
-// FONT LOADER  — loads from /backend/fonts OR local fallback
+// FONT / LOGO LOADING
 // ─────────────────────────────────────────────────────────────
-function loadFontsVfs() {
+function fontPaths() {
   const cwd = process.cwd();
   const candidates = [
     path.join(__dirname, '..', '..', '..', 'fonts'),
@@ -279,21 +273,17 @@ function loadFontsVfs() {
     path.join(__dirname, 'fonts'),
     path.join(cwd, 'fonts'),
   ];
-
   for (const dir of candidates) {
     const r = path.join(dir, 'Tajawal-Regular.ttf');
     const b = path.join(dir, 'Tajawal-Bold.ttf');
     if (fs.existsSync(r) && fs.existsSync(b)) {
-      return {
-        'Tajawal-Regular.ttf': fs.readFileSync(r).toString('base64'),
-        'Tajawal-Bold.ttf':    fs.readFileSync(b).toString('base64'),
-      };
+      return { regular: fs.readFileSync(r), bold: fs.readFileSync(b) };
     }
   }
   throw new Error('Tajawal fonts not found. Put them in /backend/fonts/');
 }
 
-function loadLogoBase64() {
+function logoBytes(): Uint8Array | null {
   const cwd = process.cwd();
   const candidates = [
     path.join(__dirname, '..', '..', '..', 'assets', 'companyLogo.png'),
@@ -303,600 +293,560 @@ function loadLogoBase64() {
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) {
-      return 'data:image/png;base64,' + fs.readFileSync(p).toString('base64');
+      return fs.readFileSync(p);
     }
   }
   return null;
 }
 
-// ─────────────────────────────────────────────────────────────
-// ARABIC FORMATTERS
-// ─────────────────────────────────────────────────────────────
-function toAr(n: any) {
-  return String(n ?? '').replace(/[0-9]/g, (d: string) => '٠١٢٣٤٥٦٧٨٩'[+d]);
-}
-
-/** "2026-01-15" → "الخميس، ١٥ يناير ٢٠٢٦" */
-function formatDate(val: any) {
-  if (!val) return '—';
-  const d = (val instanceof Date) ? val : new Date(val);
-  if (isNaN(d as any)) return String(val);
-
-  const weekDays = ['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
-  const months   = ['يناير','فبراير','مارس','أبريل','مايو','يونيو',
-                    'يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
-
-  const wd  = weekDays[d.getDay()];
-  const day = toAr(d.getDate());
-  const mon = months[d.getMonth()];
-  const yr  = toAr(d.getFullYear());
-
-  return `${wd}، ${day} ${mon} ${yr}`;
-}
-
-/** "07:30" or Date → "٠٧:٣٠ ص" */
-function formatTime(val: any) {
-  if (!val) return '—';
-  let h, m;
-  if (typeof val === 'string' && /^\d{1,2}:\d{2}/.test(val)) {
-    [h, m] = val.split(':').map(Number);
-  } else {
-    const d = (val instanceof Date) ? val : new Date(val);
-    h = d.getHours();
-    m = d.getMinutes();
-  }
-  const period = h < 12 ? 'ص' : 'م';
-  const h12    = h > 12 ? h - 12 : (h === 0 ? 12 : h);
-  return `${toAr(String(h12).padStart(2,'0'))}:${toAr(String(m).padStart(2,'0'))} ${period}`;
-}
-
-/** 2500 → "٢٬٥٠٠ جنيه" */
-function formatPrice(amount: any, currency = 'جنيه') {
-  if (amount == null || amount === '') return '—';
-  const n  = Number(amount);
-  const formatted = n.toLocaleString('en');
-  return `${toAr(formatted)} ${currency}`;
-}
-
-function genderLabel(g: any) {
-  const map: Record<string, string> = { MALE:'ذكر', FEMALE:'أنثى', male:'ذكر', female:'أنثى', M:'ذكر', F:'أنثى' };
-  return map[g] || g || '—';
-}
-
-function statusLabel(s: any) {
-  const map: Record<string, string> = {
-    ACTIVE:'نشطة', COMPLETED:'مكتملة', CANCELLED:'ملغاة',
-    PENDING:'معلقة', CONFIRMED:'مؤكدة', DELAYED:'متأخرة',
-  };
-  return map[s] || s || '—';
-}
-
-function statusColor(s: any) {
-  const map: Record<string, string> = {
-    ACTIVE: C.primary, CONFIRMED: C.primary, COMPLETED: C.success,
-    CANCELLED: C.danger, PENDING: C.warning, DELAYED: C.warning,
-  };
-  return map[s] || C.gray;
-}
-
-// ─────────────────────────────────────────────────────────────
-// LAYOUT HELPERS
-// ─────────────────────────────────────────────────────────────
-
-const MARGIN = { page: [36, 36, 36, 36] };
-
-/** Horizontal teal rule */
-function rule(mt = 8, mb = 8) {
-  return {
-    canvas: [{ type:'line', x1:0, y1:0, x2:523, y2:0, lineWidth:0.8, lineColor: C.border }],
-    margin: [0, mt, 0, mb],
-  };
-}
-
-/** Section title with left accent bar */
-function sectionTitle(label: any) {
-  return {
-    columns: [
-      { text:'', width: 4 },
-      {
-        canvas: [{ type:'rect', x:0, y:0, w:4, h:18, r:2, color: C.primary }],
-        width: 8, margin:[0,1,0,0],
-      },
-      {
-        text:      label,
-        font:      'Tajawal',
-        bold:      true,
-        fontSize:  11,
-        color:     C.textPrimary,
-        alignment: 'right',
-      },
-    ],
-    columnGap: 4,
-    margin:    [0, 0, 0, 6],
-  };
-}
-
-/** Card with light-teal bg and border */
-function card(stack: any, mbottom = 10) {
-  return {
-    table: {
-      widths: ['*'],
-      body:   [[{ stack, margin:[14,10,14,10] }]],
-    },
-    layout: {
-      hLineWidth: () => 1, vLineWidth: () => 1,
-      hLineColor: () => C.border, vLineColor: () => C.border,
-      fillColor:  () => C.bgCard,
-    },
-    margin: [0, 0, 0, mbottom],
-  };
-}
-
-/** Key / Value row — RTL: value right, key label left */
-function kv(keyLabel: any, value: any, opts: any = {}) {
-  return {
-    columns: [
-      {
-        text:      String(value ?? '—'),
-        font:      'Tajawal',
-        bold:      opts.bold    ?? false,
-        fontSize:  opts.size    ?? 10,
-        color:     opts.color   ?? C.textPrimary,
-        alignment: 'right',
-        width:     '*',
-      },
-      {
-        text:      keyLabel,
-        font:      'Tajawal',
-        bold:      true,
-        fontSize:  opts.size ?? 10,
-        color:     C.gray,
-        alignment: 'right',
-        width:     opts.kw ?? 115,
-      },
-    ],
-    margin: [0, 2, 0, 2],
-  };
-}
-
-/** Status badge pill */
-function badge(text: any, bgColor: any) {
-  return {
-    table: {
-      widths: ['auto'],
-      body: [[{
-        text,
-        font: 'Tajawal', bold: true, fontSize: 8.5,
-        color: C.white, fillColor: bgColor,
-        margin: [10, 3, 10, 3], alignment: 'center',
-      }]],
-    },
-    layout: {
-      hLineWidth: ()=>0, vLineWidth: ()=>0,
-      fillColor: ()=> bgColor,
-    },
-  };
-}
-
-// ─────────────────────────────────────────────────────────────
-// SECTION BUILDERS
-// ─────────────────────────────────────────────────────────────
-
-function buildHeader(logoBase64: any) {
-  const logoCol = logoBase64
-    ? { image: logoBase64, width: 52, height: 52, margin:[0,0,0,0] }
-    : { canvas:[{type:'ellipse', x:26, y:26, r1:26, r2:26, color: C.primaryLight}], width:52 };
-
-  return {
-    stack: [
-      // Teal top accent bar (full width)
-      {
-        canvas: [{
-          type: 'rect', x:-36, y:-36, w:600, h:6, color: C.primary,
-        }],
-        margin: [0,0,0,0],
-      },
-      // Header row
-      {
-        columns: [
-          // RIGHT: Logo + brand name
-          {
-            columns: [
-              {
-                stack: [
-                  {
-                    text:      'تفية',
-                    font:      'Tajawal',
-                    bold:      true,
-                    fontSize:  30,
-                    color:     C.primary,
-                    alignment: 'right',
-                  },
-                  {
-                    text:      'تذكرة سفر رسمية',
-                    font:      'Tajawal',
-                    fontSize:  9.5,
-                    color:     C.gray,
-                    alignment: 'right',
-                    margin:    [0, 1, 0, 0],
-                  },
-                ],
-                width: '*',
-                alignment: 'right',
-              },
-              { ...logoCol, width: 52, alignment:'left', margin:[0,0,0,0] },
-            ],
-            columnGap: 10,
-            width: '*',
-          },
-        ],
-        margin: [0, 10, 0, 8],
-      },
-      // Teal divider under header
-      {
-        canvas: [{
-          type:'rect', x:-36, y:0, w:600, h:3, color: C.primaryLight,
-        }],
-        margin: [0,0,0,12],
-      },
-    ],
-  };
-}
-
-function buildBusSection(bus: any) {
-  if (!bus) return { text:'' };
-  const plate  = bus.plateNumbers || bus.plate || {};
-  const nums   = toAr(plate.numbers  || '');
-  const arabic = plate.arabic  || '';
-  const eng    = plate.english || '';
-  const plateParts = [nums, arabic, eng].filter(Boolean).join('  |  ');
-
-  return card([
-    sectionTitle('معلومات الحافلة'),
-    {
-      columns: [
-        kv('اسم الحافلة', bus.name || '—'),
-        kv('عدد المقاعد', bus.chairs ? toAr(bus.chairs) + ' مقعداً' : '—'),
-      ],
-      columnGap: 12,
-    },
-    kv('لوحة الترقيم', plateParts || '—'),
-  ]);
-}
-
-function buildTripSection(trip: any) {
-  if (!trip) return { text:'' };
-
-  const statusBg = statusColor(trip.status);
-  const statusTx = statusLabel(trip.status);
-
-  return card([
-    // Title row + status badge
-    {
-      columns: [
-        {
-          stack: [sectionTitle('تفاصيل الرحلة')],
-          width: '*',
-        },
-        {
-          ...badge(statusTx, statusBg),
-          alignment: 'left',
-          width: 'auto',
-          margin: [0,0,0,6],
-        },
-      ],
-    },
-
-    // ── ROUTE VISUAL ─────────────────────────────
-    {
-      table: {
-        widths: ['*', 60, '*'],
-        body: [[
-          // RIGHT column — Departure
-          {
-            stack: [
-              {
-                canvas: [{
-                  type:'rect', x:0, y:0, w:130, h:72, r:8,
-                  color: C.bgBase,
-                }],
-                margin:[0,0,0,0],
-              },
-              { text: trip.fromCity    || '—',     font:'Tajawal', bold:true,  fontSize:15, color:C.textPrimary, alignment:'center', margin:[0,-68,0,0] },
-              { text: trip.fromState   || '',       font:'Tajawal', fontSize:8.5, color:C.gray, alignment:'center' },
-              { text: trip.fromStation || '',       font:'Tajawal', fontSize:8,   color:C.gray, alignment:'center', margin:[4,1,4,0] },
-              { text: formatDate(trip.departureDate), font:'Tajawal', bold:true, fontSize:9.5, color:C.primary, alignment:'center', margin:[0,5,0,0] },
-              { text: formatTime(trip.departureTime), font:'Tajawal', bold:true, fontSize:13,  color:C.textPrimary, alignment:'center' },
-              {
-                text: 'المغادرة',
-                font:'Tajawal', fontSize:7.5, color:C.gray, alignment:'center',
-              },
-            ],
-            border:[false,false,false,false],
-            margin:[0,0,0,0],
-          },
-
-          // CENTER — Arrow
-          {
-            stack: [
-              { text:'', margin:[0,10,0,0] },
-              {
-                canvas: [
-                  { type:'line', x1:5,  y1:36, x2:50, y2:36, lineWidth:1.5, lineColor:C.primaryMuted },
-                  { type:'polyline', points:[{x:5,y:31},{x:5,y:41},{x:0,y:36}], lineWidth:0, color:C.primaryMuted },
-                ],
-                margin:[0,0,0,0],
-              },
-              {
-                text: '◄',
-                font:'Tajawal', fontSize:8, color:C.primaryMuted,
-                alignment:'center', margin:[0,-14,0,0],
-              },
-            ],
-            border:[false,false,false,false],
-            alignment:'center',
-          },
-
-          // LEFT column — Arrival
-          {
-            stack: [
-              {
-                canvas: [{
-                  type:'rect', x:0, y:0, w:130, h:72, r:8,
-                  color: C.bgBase,
-                }],
-                margin:[0,0,0,0],
-              },
-              { text: trip.toCity    || '—',     font:'Tajawal', bold:true,  fontSize:15, color:C.textPrimary, alignment:'center', margin:[0,-68,0,0] },
-              { text: trip.toState   || '',       font:'Tajawal', fontSize:8.5, color:C.gray, alignment:'center' },
-              { text: trip.toStation || '',       font:'Tajawal', fontSize:8,   color:C.gray, alignment:'center', margin:[4,1,4,0] },
-              { text: formatDate(trip.arrivalDate),   font:'Tajawal', bold:true, fontSize:9.5, color:C.primary, alignment:'center', margin:[0,5,0,0] },
-              { text: formatTime(trip.arrivalTime),   font:'Tajawal', bold:true, fontSize:13,  color:C.textPrimary, alignment:'center' },
-              {
-                text: 'الوصول',
-                font:'Tajawal', fontSize:7.5, color:C.gray, alignment:'center',
-              },
-            ],
-            border:[false,false,false,false],
-            margin:[0,0,0,0],
-          },
-        ]],
-      },
-      layout: { hLineWidth:()=>0, vLineWidth:()=>0 },
-      margin: [0, 0, 0, 10],
-    },
-
-    rule(4, 8),
-    kv('سعر التذكرة الواحدة', formatPrice(trip.price), { bold:true, color:C.primary }),
-  ]);
-}
-
-function buildPassengersSection(passengers: any) {
-  if (!passengers || !passengers.length) return { text:'' };
-
-  const header = [
-    { text:'#',      font:'Tajawal', bold:true, fontSize:9, color:C.white, fillColor:C.primary, alignment:'center', margin:[0,4,0,4] },
-    { text:'المقعد', font:'Tajawal', bold:true, fontSize:9, color:C.white, fillColor:C.primary, alignment:'center', margin:[0,4,0,4] },
-    { text:'الجنس',  font:'Tajawal', bold:true, fontSize:9, color:C.white, fillColor:C.primary, alignment:'center', margin:[0,4,0,4] },
-    { text:'العمر',  font:'Tajawal', bold:true, fontSize:9, color:C.white, fillColor:C.primary, alignment:'center', margin:[0,4,0,4] },
-    { text:'اسم الراكب', font:'Tajawal', bold:true, fontSize:9, color:C.white, fillColor:C.primary, alignment:'right',  margin:[0,4,4,4] },
-  ];
-
-  const rows = passengers.map((p: any, i: number) => {
-    const isEven = i % 2 === 0;
-    const fill   = isEven ? C.bgCard : C.bgBase;
-    const cell   = (txt: any, align = 'center') => ({
-      text: String(txt ?? '—'), font:'Tajawal', fontSize:9,
-      color:C.textPrimary, fillColor:fill,
-      alignment: align, margin:[0,4,0,4],
+async function qrPngBytes(text: string): Promise<Uint8Array | null> {
+  try {
+    const buf = await QRCode.toBuffer(text, {
+      type: 'png',
+      width: 320,
+      margin: 1,
+      errorCorrectionLevel: 'Q',
     });
-    return [
-      cell(toAr(i + 1)),
-      { ...cell(toAr(p.seatNumber ?? '—')), bold:true, color:C.primary },
-      cell(genderLabel(p.gender)),
-      cell(toAr(p.age ?? '—')),
-      { ...cell(p.name || '—', 'right'), bold:true, margin:[0,4,4,4] },
-    ];
+    return new Uint8Array(buf);
+  } catch {
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// DRAWING PRIMITIVES  (pdf-lib manual layout; bottom-left origin)
+// ─────────────────────────────────────────────────────────────
+interface Ctx {
+  doc: PDFDocument;
+  page: PDFPage;
+  reg: PDFFont;
+  bold: PDFFont;
+  y: number;
+}
+
+const PAGE_W = 595.28; // A4 portrait width (pt)
+const PAGE_H = 841.89; // A4 portrait height (pt)
+const MARGIN = 30;
+
+/** Draw RTL text at RIGHT edge = x, baseline = ctx.y. Returns ctx.y unchanged. */
+function draw(
+  ctx: Ctx,
+  x: number,
+  textStr: string,
+  size: number,
+  opts: {
+    bold?: boolean;
+    color?: ReturnType<typeof rgb>;
+    right?: boolean;
+    width?: number;
+  } = {},
+) {
+  const t = asVisual(textStr);
+  if (!t) return;
+  const font = opts.bold === false ? ctx.reg : opts.bold ? ctx.bold : ctx.reg;
+  const w = font.widthOfTextAtSize(t, size);
+  const dx = opts.right && opts.width != null ? x + (opts.width ?? 0) - w : x;
+  ctx.page.drawText(t, {
+    x: dx,
+    y: ctx.y,
+    size,
+    font,
+    color: opts.color ?? C.textPrimary,
+  });
+}
+
+function drawCentered(
+  ctx: Ctx,
+  midX: number,
+  textStr: string,
+  size: number,
+  opts: any = {},
+) {
+  const t = asVisual(textStr);
+  if (!t) return;
+  const font = opts.bold === false ? ctx.reg : opts.bold ? ctx.bold : ctx.reg;
+  const w = font.widthOfTextAtSize(t, size);
+  ctx.page.drawText(t, {
+    x: midX - w / 2,
+    y: ctx.y,
+    size,
+    font,
+    color: opts.color ?? C.textPrimary,
+  });
+}
+
+function hLine(
+  ctx: Ctx,
+  x: number,
+  y: number,
+  w: number,
+  color: ReturnType<typeof rgb>,
+) {
+  ctx.page.drawLine({
+    start: { x, y },
+    end: { x: x + w, y },
+    thickness: 1,
+    color,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// RENDER TICKET  (mirrors the approved HTML design)
+// ─────────────────────────────────────────────────────────────
+async function generateTicketBuffer(
+  ticketData: TicketData,
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  (doc as any).registerFontkit(fontkit);
+  const fonts = fontPaths();
+  const reg = await doc.embedFont(fonts.regular);
+  const bold = await doc.embedFont(fonts.bold);
+  const page = doc.addPage([PAGE_W, PAGE_H]);
+  page.drawRectangle({
+    x: 0,
+    y: 0,
+    width: PAGE_W,
+    height: PAGE_H,
+    color: rgb(1, 1, 1),
   });
 
-  return card([
-    sectionTitle(`بيانات الركاب  (${toAr(passengers.length)} راكب)`),
-    {
-      table: {
-        widths: [20, 44, 46, 38, '*'],
-        headerRows: 1,
-        body: [header, ...rows],
-      },
-      layout: {
-        hLineWidth: (i: number)  => i <= 1 ? 1 : 0.5,
-        vLineWidth: ()   => 0.5,
-        hLineColor: ()   => C.border,
-        vLineColor: ()   => C.border,
-        paddingTop:    () => 0,
-        paddingBottom: () => 0,
-        paddingLeft:   () => 4,
-        paddingRight:  () => 4,
-      },
-    },
-  ]);
+  const ctx: Ctx = { doc, page, reg, bold, y: PAGE_H - MARGIN };
+  const W = PAGE_W - 2 * MARGIN;
+
+  // Logo (if present)
+  const logo = logoBytes();
+  if (logo) {
+    try {
+      const png = await doc.embedPng(logo);
+      const aspect = png.height / png.width;
+      const lw = 30;
+      const lh = lw * aspect;
+      page.drawImage(png, {
+        x: MARGIN + 2,
+        y: ctx.y - lh,
+        width: lw,
+        height: lh,
+      });
+    } catch {
+      /* logo is optional */
+    }
+  }
+
+  // Header strip (bg surface-container-low, full width)
+  ctx.y -= 4;
+  {
+    // brand on the right (RTL top)
+    draw(ctx, PAGE_W - MARGIN - 2, 'تفية', 24, {
+      bold: true,
+      color: C.primary,
+      right: true,
+      width: 200,
+    });
+    ctx.y -= 20;
+    draw(ctx, PAGE_W - MARGIN - 2, 'تذكرة سفر رسمية', 9, {
+      color: C.gray,
+      right: true,
+      width: 200,
+    });
+
+    // bus info + plate
+    const busName = ticketData.bus?.name || '—';
+    const plate = ticketData.bus?.plate || ticketData.bus?.plateNumbers || {};
+    const plateParts = [plate.numbers, plate.arabic, plate.english]
+      .filter(Boolean)
+      .join('   ');
+    const plateLtr =
+      `${plate.english || ''} ${plate.numbers || ''}`.trim() || plateParts;
+
+    ctx.y -= 26;
+    draw(ctx, PAGE_W - MARGIN - 2, 'بيانات الحافلة', 8, {
+      color: C.onSurfaceVariant,
+      right: true,
+      width: 120,
+    });
+    ctx.y -= 13;
+    draw(ctx, PAGE_W - MARGIN - 2, busName, 11, {
+      bold: true,
+      color: C.primary,
+      right: true,
+      width: 200,
+    });
+
+    // plate (top right of the same strip)
+    draw(ctx, MARGIN + 2, plateLtr, 10, {
+      bold: true,
+      color: C.primary,
+      right: false,
+      width: 120,
+    });
+    ctx.y -= 12;
+    draw(ctx, MARGIN + 2, 'رقم اللوحة', 8, {
+      color: C.onSurfaceVariant,
+      right: false,
+      width: 120,
+    });
+    ctx.y -= 8;
+  }
+
+  // Identification: booking holder
+  ctx.y -= 10;
+  hLine(ctx, MARGIN, ctx.y, W, C.outlineVariant);
+  ctx.y -= 14;
+  draw(ctx, PAGE_W - MARGIN - 2, 'صاحب الحجز', 8, {
+    color: C.onSurfaceVariant,
+    right: true,
+    width: 160,
+  });
+  ctx.y -= 16;
+  draw(ctx, PAGE_W - MARGIN - 2, ticketData.customerName || '—', 15, {
+    bold: true,
+    right: true,
+    width: W - 40,
+  });
+  ctx.y -= 14;
+
+  // Trip timeline
+  const trip = ticketData.trip;
+  const dep = brief(trip);
+  draw(ctx, MARGIN + 2, 'محطة المغادرة', 8, {
+    color: C.onSurfaceVariant,
+    right: true,
+    width: 200,
+  });
+  draw(ctx, PAGE_W - MARGIN - 2, formatTime(dep.departureTime), 12, {
+    bold: true,
+    color: C.primary,
+    right: true,
+    width: 140,
+  });
+  ctx.y -= 18;
+  draw(ctx, MARGIN + 2, dep.fromCity || '—', 15, {
+    bold: true,
+    right: true,
+    width: 200,
+  });
+  draw(ctx, PAGE_W - MARGIN - 2, 'المغادرة', 8, {
+    color: C.gray,
+    right: true,
+    width: 140,
+  });
+  ctx.y -= 15;
+  draw(ctx, MARGIN + 2, `${dep.fromState} ${dep.fromStation}`, 9, {
+    color: C.onSurfaceVariant,
+    right: true,
+    width: 200,
+  });
+  draw(ctx, PAGE_W - MARGIN - 2, formatDateShort(dep.departureDate), 9, {
+    color: C.tertiary,
+    right: true,
+    width: 140,
+  });
+  ctx.y -= 14;
+
+  // arrival
+  draw(ctx, MARGIN + 2, 'محطة الوصول', 8, {
+    color: C.onSurfaceVariant,
+    right: true,
+    width: 200,
+  });
+  draw(ctx, PAGE_W - MARGIN - 2, formatTime(dep.arrivalTime), 12, {
+    bold: true,
+    color: C.tertiary,
+    right: true,
+    width: 140,
+  });
+  ctx.y -= 18;
+  draw(ctx, MARGIN + 2, dep.toCity || '—', 15, {
+    bold: true,
+    right: true,
+    width: 200,
+  });
+  draw(ctx, PAGE_W - MARGIN - 2, 'الوصول', 8, {
+    color: C.gray,
+    right: true,
+    width: 140,
+  });
+  ctx.y -= 15;
+  draw(ctx, MARGIN + 2, `${dep.toState} ${dep.toStation}`, 9, {
+    color: C.onSurfaceVariant,
+    right: true,
+    width: 200,
+  });
+  draw(ctx, PAGE_W - MARGIN - 2, formatDateShort(dep.arrivalDate), 9, {
+    color: C.tertiary,
+    right: true,
+    width: 140,
+  });
+  ctx.y -= 12;
+
+  // Tear dashed line
+  ctx.y -= 6;
+  ctx.page.drawLine({
+    start: { x: MARGIN + 16, y: ctx.y },
+    end: { x: PAGE_W - MARGIN - 16, y: ctx.y },
+    thickness: 1.5,
+    color: C.outlineVariant,
+    dashArray: [3, 3],
+  });
+  ctx.y -= 16;
+
+  // Passengers
+  const passengers = ticketData.passengers ?? [];
+  const seatNumbers = ticketData.seatNumbers ?? [];
+  draw(
+    ctx,
+    PAGE_W - MARGIN - 2,
+    `قائمة الركاب (${toAr(passengers.length)})`,
+    10,
+    { bold: true, color: C.onSurfaceVariant, right: true, width: 200 },
+  );
+  ctx.y -= 14;
+  passengers.forEach((p: any, i: number) => {
+    const name = p.name || '—';
+    const age = p.age ?? '—';
+    const gender = genderLabel(p.gender);
+    const seat = seatNumbers[i] != null ? toAr(seatNumbers[i]) : '—';
+    const y0 = ctx.y;
+    // row card
+    ctx.page.drawRectangle({
+      x: MARGIN,
+      y: ctx.y - 26,
+      width: W,
+      height: 26,
+      color: i % 2 === 0 ? hex('ffffff') : hex('f4fbf9'),
+      borderColor: C.outlineVariant,
+      borderWidth: 1,
+    });
+    ctx.y -= 13;
+    draw(ctx, MARGIN + 12, name, 12, { bold: true, right: true, width: W / 2 });
+    draw(ctx, PAGE_W - MARGIN - 12, 'رقم المقعد', 8, {
+      color: C.onSurfaceVariant,
+      right: true,
+      width: 90,
+    });
+    ctx.y -= 12;
+    draw(ctx, MARGIN + 12, `${gender} • ${toAr(age)} سنة`, 9, {
+      color: C.onSurfaceVariant,
+      right: true,
+      width: W / 2,
+    });
+    draw(ctx, PAGE_W - MARGIN - 12, seat, 11, {
+      bold: true,
+      color: C.primary,
+      right: true,
+      width: 90,
+    });
+    ctx.y = y0 - 34;
+  });
+  ctx.y -= 4;
+
+  // Payment summary
+  const pay = ticketData.payment || {};
+  const seatCount = passengers.length || 1;
+  const price = Number(pay.price ?? pay.singlePrice ?? 0);
+  const platformFee = Number(pay.platformFeeAmount ?? 0);
+  const total = Number(pay.totalAmount ?? 0);
+  const currency = pay.currency || 'جنيه سوداني';
+
+  hLine(ctx, MARGIN, ctx.y, W, C.outlineVariant);
+  ctx.y -= 14;
+  draw(ctx, PAGE_W - MARGIN - 2, 'تفاصيل الدفع', 10, {
+    bold: true,
+    color: C.onSurfaceVariant,
+    right: true,
+    width: 200,
+  });
+  ctx.y -= 16;
+  pv(ctx, `سعر التذكرة (${toAr(seatCount)})`, formatMoney(price, currency));
+  pv(ctx, 'رسوم المنصة', formatMoney(platformFee, currency));
+  ctx.y -= 4;
+  hLine(ctx, MARGIN, ctx.y, W, C.outlineVariant);
+  ctx.y -= 12;
+  // total
+  draw(ctx, PAGE_W - MARGIN - 2, 'الإجمالي', 14, {
+    bold: true,
+    right: true,
+    width: 200,
+  });
+  draw(ctx, MARGIN + 2, formatMoney(total, currency), 11, {
+    bold: true,
+    color: C.primary,
+  });
+  ctx.y -= 16;
+
+  // QR + reference
+  ctx.y -= 6;
+  const qrBytes = ticketData.qrData
+    ? await qrPngBytes(ticketData.qrData)
+    : null;
+  if (qrBytes) {
+    try {
+      const qr = await doc.embedPng(qrBytes);
+      const size = 108;
+      ctx.page.drawImage(qr, {
+        x: PAGE_W / 2 - size / 2,
+        y: ctx.y - size,
+        width: size,
+        height: size,
+      });
+      ctx.y -= size;
+    } catch {
+      ctx.y -= 30;
+    }
+  } else {
+    ctx.y -= 30;
+  }
+  ctx.y -= 6;
+  const ref = ticketData.bookingId.slice(0, 13).toUpperCase();
+  drawCentered(ctx, PAGE_W / 2, ref, 9, {
+    bold: true,
+    color: C.onSurfaceVariant,
+  });
+  ctx.y -= 18;
+
+  // Help info box
+  ctx.page.drawRectangle({
+    x: MARGIN,
+    y: ctx.y - 40,
+    width: W,
+    height: 40,
+    color: hex('e6f2ef'),
+  });
+  ctx.y -= 24;
+  draw(
+    ctx,
+    MARGIN + 14,
+    'يرجى التواجد في المحطة قبل موعد المغادرة بـ ٣٠ دقيقة على الأقل. تأكد من إحضار بطاقة الهوية الوطنية أو الإقامة لمطابقة البيانات عند الصعود.',
+    7.5,
+    { color: C.onSecondaryContainer },
+  );
+  ctx.y = 0;
+
+  return doc.save();
 }
 
-function buildPaymentSection(payment: any, trip: any) {
-  if (!payment) return { text:'' };
-
-  const singlePrice = trip?.price ?? 0;
-  const platformFee = payment.platformFeeAmount ?? payment.platformFee ?? 0;
-  const companyAmt  = payment.companyAmount ?? 0;
-  const total       = payment.totalAmount   ?? 0;
-
-  return card([
-    sectionTitle('تفاصيل الدفع'),
-    kv('سعر التذكرة الواحدة',  formatPrice(singlePrice)),
-    kv('رسوم المنصة',           formatPrice(platformFee)),
-    rule(4, 4),
-    kv('المحول للشركة',         formatPrice(companyAmt)),
-    rule(4, 4),
-    {
-      columns: [
-        {
-          text:      formatPrice(total),
-          font:      'Tajawal',
-          bold:      true,
-          fontSize:  14,
-          color:     C.primary,
-          alignment: 'right',
-        },
-        {
-          text:      'الإجمالي المدفوع',
-          font:      'Tajawal',
-          bold:      true,
-          fontSize:  11,
-          color:     C.textPrimary,
-          alignment: 'right',
-          width:     115,
-        },
-      ],
-      margin: [0, 4, 0, 2],
-    },
-  ]);
+function pv(ctx: Ctx, key: string, value: string) {
+  draw(ctx, PAGE_W - MARGIN - 2, key, 10, {
+    color: C.onSurfaceVariant,
+    right: true,
+    width: 200,
+  });
+  draw(ctx, MARGIN + 2, value, 10, { color: C.onSurfaceVariant });
+  ctx.y -= 14;
 }
 
-function buildFooter(bookingId: any) {
+function brief(trip: any) {
   return {
-    stack: [
-      rule(6, 6),
-      {
-        table: {
-          widths: ['*', 'auto'],
-          body: [[
-            {
-              text: bookingId
-                ? `رقم الحجز: ${bookingId}`
-                : '',
-              font:'Tajawal', fontSize:8, color:C.gray, alignment:'right',
-              border:[false,false,false,false],
-            },
-            {
-              text: 'تفية — منصة حجز التذاكر',
-              font:'Tajawal', fontSize:8, color:C.primary, alignment:'left',
-              border:[false,false,false,false],
-            },
-          ]],
-        },
-        layout: 'noBorders',
-      },
-      {
-        text: 'هذه التذكرة وثيقة رسمية. يُرجى الاحتفاظ بها طوال رحلتك.',
-        font:'Tajawal', fontSize:7.5, color:C.gray, alignment:'center', margin:[0,3,0,0],
-      },
-      // Bottom teal stripe
-      {
-        canvas: [{ type:'rect', x:-36, y:6, w:600, h:4, color:C.primaryLight }],
-        margin: [0,4,0,0],
-      },
-    ],
+    fromCity: trip?.fromCity,
+    fromState: trip?.fromState,
+    fromStation: trip?.fromStation,
+    departureTime: trip?.departureTime,
+    departureDate: trip?.departureDate,
+    toCity: trip?.toCity,
+    toState: trip?.toState,
+    toStation: trip?.toStation,
+    arrivalTime: trip?.arrivalTime,
+    arrivalDate: trip?.arrivalDate,
   };
 }
 
 // ─────────────────────────────────────────────────────────────
-// MAIN EXPORT
+// RENDER PASSENGER LIST  (A4 landscape)
 // ─────────────────────────────────────────────────────────────
-
-/**
- * @param {{ bus, trip, passengers, payment, bookingId }} ticketData
- * @returns {Promise<Buffer>}  PDF as a Node.js Buffer
- */
-async function generateTicketBuffer(ticketData: any) {
-  const { bus, trip, passengers, payment, bookingId } = ticketData;
-
-  // Fonts are already set by the PDFService constructor using absolute file paths
-  const logoBase64 = loadLogoBase64();
-
-  const docDefinition = {
-    pageSize:        'A4',
-    pageOrientation: 'portrait',
-    pageMargins:     MARGIN.page,
-
-    defaultStyle: {
-      font:      'Tajawal',
-      fontSize:  10,
-      color:     C.textPrimary,
-      alignment: 'right',
-    },
-
-    // Light teal page background
-    background: (currentPage: any, pageSize: any) => ({
-      canvas: [{
-        type:'rect', x:0, y:0,
-        w: pageSize.width, h: pageSize.height,
-        color: C.bgBase,
-      }],
-    }),
-
-    content: [
-      buildHeader(logoBase64),
-      buildBusSection(bus),
-      buildTripSection(trip),
-      buildPassengersSection(passengers),
-      buildPaymentSection(payment, trip),
-      buildFooter(bookingId),
-    ],
-  };
-
-  const pdfDoc = pdfMake.createPdf(docDefinition as any);
-  return pdfDoc.getBuffer();
-}
-
-module.exports.generateTicketBuffer = generateTicketBuffer;
-
-// ─────────────────────────────────────────────────────────────
-// DEMO — node generateTicket.js
-// ─────────────────────────────────────────────────────────────
-if (require.main === module) {
-  const sampleData = {
-    bookingId: 'BK-20260115-00142',
-
-    bus: {
-      name:         'سوبر جيت — خط الخرطوم',
-      plateNumbers: { numbers: '٣٦٧٢١', arabic: 'أ ب ت', english: 'KRT' },
-      chairs:       44,
-    },
-
-    trip: {
-      departureDate:  '2026-01-15',
-      departureTime:  '07:30',
-      arrivalDate:    '2026-01-15',
-      arrivalTime:    '13:45',
-      fromState:      'ولاية الخرطوم',
-      fromCity:       'الخرطوم',
-      fromStation:    'محطة الشهداء المركزية',
-      toState:        'ولاية البحر الأحمر',
-      toCity:         'بورتسودان',
-      toStation:      'محطة بورتسودان الرئيسية',
-      price:          2500,
-      status:         'CONFIRMED',
-    },
-
-    passengers: [
-      { name: 'أحمد محمد علي',    age: 32, gender: 'MALE',   seatNumber: 12 },
-      { name: 'فاطمة أحمد حسن',   age: 28, gender: 'FEMALE', seatNumber: 13 },
-      { name: 'محمد عبدالله خالد', age: 8,  gender: 'MALE',   seatNumber: 14 },
-    ],
-
-    payment: {
-      platformFeeAmount: 150,
-      companyAmount:     7350,
-      totalAmount:       7500,
-    },
-  };
-
-  generateTicketBuffer(sampleData).then(buf => {
-    const outPath = path.join(__dirname, 'tafiya-ticket.pdf');
-    fs.writeFileSync(outPath, buf);
-    console.log('✅  Ticket saved →', outPath, `(${(buf.length/1024).toFixed(1)} KB)`);
-  }).catch((e: any) => {
-    console.error('❌  Error:', e.message);
-    process.exit(1);
+async function generatePassengerListBuffer(
+  trip: any,
+  passengerRows: any[],
+): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  (doc as any).registerFontkit(fontkit);
+  const fonts = fontPaths();
+  const reg = await doc.embedFont(fonts.regular);
+  const bold = await doc.embedFont(fonts.bold);
+  const page = doc.addPage([841.89, 595.28]); // A4 landscape
+  page.drawRectangle({
+    x: 0,
+    y: 0,
+    width: 841.89,
+    height: 595.28,
+    color: rgb(1, 1, 1),
   });
+
+  const ctx: Ctx = { doc, page, reg, bold, y: 575 };
+  const ML = 40;
+
+  draw(
+    ctx,
+    841.89 - ML,
+    `قائمة الركاب — ${trip?.fromCity || ''} → ${trip?.toCity || ''}`,
+    16,
+    {
+      bold: true,
+      color: C.primary,
+      right: true,
+      width: 760,
+    },
+  );
+  ctx.y -= 24;
+
+  const cols = [40, 80, 80, 80, 200, 220];
+  const headers = [
+    '#',
+    'المقعد',
+    'الجنس',
+    'العمر',
+    'جهة الاتصال',
+    'اسم الراكب',
+  ];
+  const cx = (i: number) => ML + cols.slice(0, i).reduce((a, b) => a + b, 0);
+  const rowH = 24;
+
+  ctx.page.drawRectangle({
+    x: ML,
+    y: ctx.y - rowH,
+    width: 720,
+    height: rowH,
+    color: C.primary,
+  });
+  ctx.y -= 6;
+  headers.forEach((h, i) => {
+    draw(ctx, cx(i) + cols[i] - 6, h, 10, {
+      bold: true,
+      color: C.onPrimary,
+      right: true,
+      width: cols[i] - 12,
+    });
+  });
+  ctx.y -= rowH - 6;
+
+  passengerRows.forEach((p: any, i: number) => {
+    const fill = i % 2 === 0 ? hex('ffffff') : hex('f4fbf9');
+    ctx.page.drawRectangle({
+      x: ML,
+      y: ctx.y - rowH,
+      width: 720,
+      height: rowH,
+      color: fill,
+    });
+    const cells = [
+      toAr(i + 1),
+      toAr(p.seatNumber),
+      genderLabel(p.gender),
+      toAr(p.age),
+      p.contact,
+      p.name,
+    ];
+    ctx.y -= 6;
+    cells.forEach((val, ci) => {
+      draw(ctx, cx(ci) + cols[ci] - 6, String(val ?? '—'), 10, {
+        color: C.textPrimary,
+        right: true,
+        width: cols[ci] - 12,
+      });
+    });
+    ctx.y -= rowH - 6;
+  });
+
+  return doc.save();
 }
 
+export { generateTicketBuffer, generatePassengerListBuffer };

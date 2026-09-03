@@ -77,7 +77,9 @@ export class AdminUsersService {
         select: {
           companyAmount: true,
           Booking: {
-            select: { Trip: { select: { Bus: { select: { companyId: true } } } } },
+            select: {
+              Trip: { select: { Bus: { select: { companyId: true } } } },
+            },
           },
         },
       });
@@ -87,14 +89,17 @@ export class AdminUsersService {
         const amount = Number(p.companyAmount ?? 0);
         profitsMap.set(cid, (profitsMap.get(cid) ?? 0) + amount);
       }
-      users = users.map((u: any) => ({ ...u, profits: profitsMap.get(u.id) ?? 0 }));
+      users = users.map((u: any) => ({
+        ...u,
+        profits: profitsMap.get(u.id) ?? 0,
+      }));
     } else {
       users = users.map((u: any) => ({ ...u, profits: null }));
     }
     return { users, total, page, pages: Math.ceil(total / limit) };
   }
   async findOne(id: string) {
-    const raw = await this.prisma.users.findUnique({
+    const raw = (await this.prisma.users.findUnique({
       where: { id },
       include: {
         Booking: {
@@ -104,15 +109,22 @@ export class AdminUsersService {
         Bus: { include: { Trip: { include: { Bus: true } } } },
         CompanyBankAccount: true,
       },
-    }) as any;
+    })) as any;
     if (!raw) throw new NotFoundException('المستخدم غير موجود');
-    const confirmedBookings = raw.Booking.filter((b: any) => b.status === 'CONFIRMED');
+    const confirmedBookings = raw.Booking.filter(
+      (b: any) => b.status === 'CONFIRMED',
+    );
 
     let totalProfits = 0;
     let totalPaidOut = 0;
-    const tripProfitsMap = new Map<string, { profit: number; platformFee: number }>();
+    const tripProfitsMap = new Map<
+      string,
+      { profit: number; platformFee: number }
+    >();
 
-    const allTripIds = (raw.Bus ?? []).flatMap((bus: any) => (bus.Trip ?? []).map((t: any) => t.id));
+    const allTripIds = (raw.Bus ?? []).flatMap((bus: any) =>
+      (bus.Trip ?? []).map((t: any) => t.id),
+    );
     if (allTripIds.length > 0) {
       const bookings = await this.prisma.booking.findMany({
         where: { tripId: { in: allTripIds }, status: 'CONFIRMED' },
@@ -125,7 +137,10 @@ export class AdminUsersService {
           const fee = Number(p.platformFeeAmount ?? 0);
           totalProfits += profit;
           const tid = b.tripId;
-          const existing = tripProfitsMap.get(tid) ?? { profit: 0, platformFee: 0 };
+          const existing = tripProfitsMap.get(tid) ?? {
+            profit: 0,
+            platformFee: 0,
+          };
           existing.profit += profit;
           existing.platformFee += fee;
           tripProfitsMap.set(tid, existing);
@@ -133,8 +148,13 @@ export class AdminUsersService {
       }
 
       try {
-        const payouts = await this.prisma.payoutRecord.findMany({ where: { companyId: id } });
-        totalPaidOut = payouts.reduce((s: number, p: any) => s + Number(p.amount), 0);
+        const payouts = await this.prisma.payoutRecord.findMany({
+          where: { companyId: id },
+        });
+        totalPaidOut = payouts.reduce(
+          (s: number, p: any) => s + Number(p.amount),
+          0,
+        );
       } catch {}
     }
 

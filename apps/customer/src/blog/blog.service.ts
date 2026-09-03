@@ -8,7 +8,15 @@ export class BlogService {
   async getAll() {
     return this.prisma.blogPost.findMany({
       where: { published: true },
-      select: { id: true, title: true, slug: true, excerpt: true, coverImage: true, createdAt: true, author: { select: { name: true } } },
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        excerpt: true,
+        coverImage: true,
+        createdAt: true,
+        author: { select: { name: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
   }

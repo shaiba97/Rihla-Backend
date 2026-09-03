@@ -32,7 +32,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const message =
       typeof errorResponse === 'string'
         ? errorResponse
-        : (errorResponse as any).message ?? String(errorResponse);
+        : ((errorResponse as any).message ?? String(errorResponse));
 
     this.logger.error(
       `[${request.method}] ${request.url} — ${status} — ${Array.isArray(message) ? message.join('; ') : message}`,

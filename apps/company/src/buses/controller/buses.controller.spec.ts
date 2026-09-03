@@ -20,9 +20,7 @@ describe('BusesController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [BusesController],
-      providers: [
-        { provide: BusesService, useValue: mockBusesService },
-      ],
+      providers: [{ provide: BusesService, useValue: mockBusesService }],
     }).compile();
 
     controller = module.get<BusesController>(BusesController);
@@ -40,7 +38,7 @@ describe('BusesController', () => {
   describe('POST post-bus', () => {
     it('should create a bus', async () => {
       const createDto = {} as CreateBusDto;
-      
+
       // = {
       //   name: 'حافلة 1',
       //   chairs: 50,
@@ -49,7 +47,11 @@ describe('BusesController', () => {
       //   seatStartFrom: 'LEFT',
       //   plate: { arabic: 'أ', english: 'A', numbers: '123' },
       // };
-      const result = { success: true, message: 'تم إنشاء الحافلة بنجاح', data: { id: '1', ...createDto } };
+      const result = {
+        success: true,
+        message: 'تم إنشاء الحافلة بنجاح',
+        data: { id: '1', ...createDto },
+      };
       mockBusesService.create.mockResolvedValue(result);
 
       const response = await controller.create({}, createDto);
@@ -60,7 +62,10 @@ describe('BusesController', () => {
 
   describe('GET get-buses', () => {
     it('should return all buses', async () => {
-      const result = [{ id: '1', name: 'حافلة 1' }, { id: '2', name: 'حافلة 2' }];
+      const result = [
+        { id: '1', name: 'حافلة 1' },
+        { id: '2', name: 'حافلة 2' },
+      ];
       mockBusesService.getBuses.mockResolvedValue(result);
 
       const response = await controller.getBuses();
@@ -75,7 +80,10 @@ describe('BusesController', () => {
       mockBusesService.getBusesByProperty.mockResolvedValue(result);
 
       const response = await controller.getBusesByProperty('name', 'حافلة 1');
-      expect(mockBusesService.getBusesByProperty).toHaveBeenCalledWith('name', 'حافلة 1');
+      expect(mockBusesService.getBusesByProperty).toHaveBeenCalledWith(
+        'name',
+        'حافلة 1',
+      );
       expect(response).toEqual(result);
     });
   });
@@ -97,7 +105,11 @@ describe('BusesController', () => {
   describe('PATCH update-bus/:id', () => {
     it('should update a bus', async () => {
       const updateDto = { name: 'حافلة محدثة' };
-      const result = { success: true, message: 'تم تحديث الحافلة بنجاح', data: { id: '1', ...updateDto } };
+      const result = {
+        success: true,
+        message: 'تم تحديث الحافلة بنجاح',
+        data: { id: '1', ...updateDto },
+      };
       mockBusesService.update.mockResolvedValue(result);
 
       const response = await controller.update('1', updateDto);

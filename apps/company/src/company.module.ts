@@ -12,7 +12,17 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { CitiesModule } from '@app/cities';
 
 @Module({
-  imports: [BusesModule, TripsModule, UsersModule, AuthModule, PaymentModule, PayoutModule, TafiyaWsModule, NotificationsModule, CitiesModule],
+  imports: [
+    BusesModule,
+    TripsModule,
+    UsersModule,
+    AuthModule,
+    PaymentModule,
+    PayoutModule,
+    TafiyaWsModule,
+    NotificationsModule,
+    CitiesModule,
+  ],
   controllers: [CompanyController],
   providers: [CompanyService],
 })

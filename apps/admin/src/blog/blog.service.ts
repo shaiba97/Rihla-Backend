@@ -44,14 +44,17 @@ export class BlogService {
     });
   }
 
-  async update(id: string, data: {
-    title?: string;
-    slug?: string;
-    content?: string;
-    excerpt?: string;
-    coverImage?: string;
-    published?: boolean;
-  }) {
+  async update(
+    id: string,
+    data: {
+      title?: string;
+      slug?: string;
+      content?: string;
+      excerpt?: string;
+      coverImage?: string;
+      published?: boolean;
+    },
+  ) {
     await this.getOne(id);
     return this.prisma.blogPost.update({
       where: { id },

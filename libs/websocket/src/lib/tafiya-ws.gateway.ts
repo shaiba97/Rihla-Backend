@@ -58,9 +58,26 @@ export class TafiyaWsGateway
       return;
     }
 
+    // Validate JWT secret is available
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      this.logger.error(
+        'JWT_SECRET environment variable is not defined. WebSocket authentication disabled.',
+      );
+      client.data.user = null;
+      return;
+    }
+    if (secret.trim() === '') {
+      this.logger.error(
+        'JWT_SECRET environment variable is empty. WebSocket authentication disabled.',
+      );
+      client.data.user = null;
+      return;
+    }
+
     try {
       const payload = this.jwtService.verify(token, {
-        secret: process.env.JWT_SECRET!,
+        secret,
       });
 
       if (!payload?.id || !payload?.role) {

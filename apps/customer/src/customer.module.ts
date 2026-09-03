@@ -15,7 +15,17 @@ import { AllExceptionsFilter } from './filters/all-exceptions.filter';
 import { CitiesModule } from '@app/cities';
 
 @Module({
-  imports: [UsersModule, BookingModule, NotificationsModule, PushModule, BlogModule, AwardsModule, TicketsModule, TafiyaWsModule, CitiesModule],
+  imports: [
+    UsersModule,
+    BookingModule,
+    NotificationsModule,
+    PushModule,
+    BlogModule,
+    AwardsModule,
+    TicketsModule,
+    TafiyaWsModule,
+    CitiesModule,
+  ],
   controllers: [CustomerController],
   providers: [
     CustomerService,

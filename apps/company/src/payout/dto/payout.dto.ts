@@ -9,7 +9,9 @@ export enum PayoutRequestStatus {
 }
 
 export class RequestPayoutDto {
-  @ApiProperty({ description: 'معرف الرحلة (اختياري، إذا كان فارغاً سيتم طلب صرف الكل)' })
+  @ApiProperty({
+    description: 'معرف الرحلة (اختياري، إذا كان فارغاً سيتم طلب صرف الكل)',
+  })
   @IsString()
   @IsOptional()
   tripId?: string;

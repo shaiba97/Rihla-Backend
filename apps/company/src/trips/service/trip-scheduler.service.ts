@@ -53,7 +53,10 @@ export class TripSchedulerService {
           data: { status: 'IN_PROGRESS' },
         });
         toInProgress.forEach((t: any) => {
-          this.wsGateway.emitPublic(WS_EVENTS.TRIP_STATUS_CHANGED, { tripId: t.id, status: 'IN_PROGRESS' });
+          this.wsGateway.emitPublic(WS_EVENTS.TRIP_STATUS_CHANGED, {
+            tripId: t.id,
+            status: 'IN_PROGRESS',
+          });
         });
       }
 
@@ -79,7 +82,10 @@ export class TripSchedulerService {
           data: { status: 'COMPLETED' },
         });
         toCompleted.forEach((t: any) => {
-          this.wsGateway.emitPublic(WS_EVENTS.TRIP_STATUS_CHANGED, { tripId: t.id, status: 'COMPLETED' });
+          this.wsGateway.emitPublic(WS_EVENTS.TRIP_STATUS_CHANGED, {
+            tripId: t.id,
+            status: 'COMPLETED',
+          });
         });
       }
     } catch {

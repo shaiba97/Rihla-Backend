@@ -6,14 +6,24 @@ export class SupportContactsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getAll() {
-    return this.prisma.supportContact.findMany({ orderBy: { createdAt: 'desc' } });
+    return this.prisma.supportContact.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
-  async create(data: { type: string; value: string; label?: string; isActive?: boolean }) {
+  async create(data: {
+    type: string;
+    value: string;
+    label?: string;
+    isActive?: boolean;
+  }) {
     return this.prisma.supportContact.create({ data });
   }
 
-  async update(id: string, data: { type?: string; value?: string; label?: string; isActive?: boolean }) {
+  async update(
+    id: string,
+    data: { type?: string; value?: string; label?: string; isActive?: boolean },
+  ) {
     await this.findOne(id);
     return this.prisma.supportContact.update({ where: { id }, data });
   }

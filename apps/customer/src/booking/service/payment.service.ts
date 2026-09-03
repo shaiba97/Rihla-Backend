@@ -356,7 +356,7 @@ export class PaymentService {
             ...(pdfBuffer ? { pdfData: new Uint8Array(pdfBuffer) } : {}),
             generatedAt: new Date(),
             Booking: {
-              connect: { id: booking.id }
+              connect: { id: booking.id },
             },
           },
         });

@@ -13,7 +13,9 @@ let sock: ReturnType<typeof makeWASocket> | null = null;
 let isConnected = false;
 let connectPromise: Promise<void> | null = null;
 
-export async function getWhatsAppSock(): Promise<ReturnType<typeof makeWASocket>> {
+export async function getWhatsAppSock(): Promise<
+  ReturnType<typeof makeWASocket>
+> {
   if (sock && isConnected) return sock;
 
   if (connectPromise) {
@@ -49,7 +51,8 @@ export async function getWhatsAppSock(): Promise<ReturnType<typeof makeWASocket>
 
           if (connection === 'close') {
             isConnected = false;
-            const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+            const statusCode = (lastDisconnect?.error as Boom)?.output
+              ?.statusCode;
             console.log('WhatsApp disconnected, code:', statusCode);
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 

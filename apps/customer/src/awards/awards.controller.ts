@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Param, Req, UseGuards, Body, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  Req,
+  UseGuards,
+  Body,
+  BadRequestException,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Prisma } from '@app/prisma';
 import { AwardsService } from './awards.service';
@@ -36,7 +45,13 @@ export class AwardsController {
   @Post('withdraw')
   async createWithdraw(
     @Req() req: any,
-    @Body() body: { bankName: string; accountHolder: string; accountNumber: string; amount: number },
+    @Body()
+    body: {
+      bankName: string;
+      accountHolder: string;
+      accountNumber: string;
+      amount: number;
+    },
   ) {
     if (!body.bankName || !body.accountHolder || !body.accountNumber) {
       throw new BadRequestException('جميع حقول معلومات الحساب مطلوبة');
@@ -52,10 +67,14 @@ export class AwardsController {
         if (error.code === 'P2002') {
           throw new BadRequestException('طلب سحب بنفس البيانات موجود بالفعل');
         }
-        throw new BadRequestException('خطأ في قاعدة البيانات — يرجى المحاولة مجدداً');
+        throw new BadRequestException(
+          'خطأ في قاعدة البيانات — يرجى المحاولة مجدداً',
+        );
       }
       if (error instanceof Prisma.PrismaClientValidationError) {
-        throw new BadRequestException('بيانات غير صالحة — يرجى التحقق من المدخلات');
+        throw new BadRequestException(
+          'بيانات غير صالحة — يرجى التحقق من المدخلات',
+        );
       }
       throw error;
     }

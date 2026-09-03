@@ -13,7 +13,9 @@ export class PushService implements OnModuleInit {
       return;
     }
     try {
-      const credentials = JSON.parse(Buffer.from(credPath, 'base64').toString('utf-8'));
+      const credentials = JSON.parse(
+        Buffer.from(credPath, 'base64').toString('utf-8'),
+      );
       admin.initializeApp({ credential: admin.credential.cert(credentials) });
       this.initialized = true;
       this.logger.log('Firebase Admin initialized');
@@ -37,7 +39,9 @@ export class PushService implements OnModuleInit {
       });
     } catch (e: any) {
       if (e.code === 'messaging/registration-token-not-registered') {
-        this.logger.warn(`Token ${token.slice(0, 8)}… not registered — should remove`);
+        this.logger.warn(
+          `Token ${token.slice(0, 8)}… not registered — should remove`,
+        );
         return;
       }
       this.logger.error(`FCM send failed for ${token.slice(0, 8)}…`, e.message);
@@ -48,7 +52,8 @@ export class PushService implements OnModuleInit {
     tokens: string[],
     payload: { title: string; body: string; data?: Record<string, string> },
   ): Promise<{ success: number; failure: number }> {
-    if (!this.initialized || tokens.length === 0) return { success: 0, failure: 0 };
+    if (!this.initialized || tokens.length === 0)
+      return { success: 0, failure: 0 };
     try {
       const result = await admin.messaging().sendEachForMulticast({
         tokens,

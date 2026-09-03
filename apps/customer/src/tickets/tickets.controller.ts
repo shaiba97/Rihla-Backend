@@ -71,7 +71,14 @@ export class TicketsController {
       booking = await this.prisma.booking.findUnique({
         where: { id },
         include: {
-          TicketPDF: { select: { id: true, bookingId: true, ticketUrl: true, generatedAt: true } },
+          TicketPDF: {
+            select: {
+              id: true,
+              bookingId: true,
+              ticketUrl: true,
+              generatedAt: true,
+            },
+          },
           Customer: { select: { name: true } },
         },
       });
@@ -110,8 +117,8 @@ export class TicketsController {
             create: {
               ...data,
               Booking: {
-                connect: { id: id }
-              }
+                connect: { id: id },
+              },
             },
             update: data,
           });
@@ -120,14 +127,17 @@ export class TicketsController {
           // General error handling for upsert failures - keeps retry logic as precaution
           // during schema migration period or for other unexpected issues
           if (String(e?.message || '').includes('pdfData')) {
-            await this.prisma.$executeRawUnsafe(`UPDATE "TicketPDF" SET "pdfData" = NULL WHERE "bookingId" = $1`, id);
+            await this.prisma.$executeRawUnsafe(
+              `UPDATE "TicketPDF" SET "pdfData" = NULL WHERE "bookingId" = $1`,
+              id,
+            );
             await this.prisma.ticketPDF.upsert({
               where: { bookingId: id },
               create: {
                 ...data,
                 Booking: {
-                  connect: { id: id }
-                }
+                  connect: { id: id },
+                },
               },
               update: data,
             });
@@ -137,11 +147,10 @@ export class TicketsController {
       }
     }
 
-    if (!pdfData)
-      throw new NotFoundException('Ticket PDF is not available');
+    if (!pdfData) throw new NotFoundException('Ticket PDF is not available');
 
     // pdfData is now a Buffer (from Bytes column), use it directly
-    const pdfBuffer = pdfData as Buffer;
+    const pdfBuffer = pdfData;
     const orderRef = booking.id.slice(0, 8).toUpperCase();
     // Customer names may contain non-ASCII (Arabic) characters, which Node
     // rejects in a raw HTTP header value. Keep `filename` ASCII-only and carry
@@ -195,7 +204,14 @@ export class TicketsController {
         include: {
           Trip: { include: { Bus: true } },
           Payment: true,
-          TicketPDF: { select: { id: true, bookingId: true, ticketUrl: true, generatedAt: true } },
+          TicketPDF: {
+            select: {
+              id: true,
+              bookingId: true,
+              ticketUrl: true,
+              generatedAt: true,
+            },
+          },
         },
       });
     } catch (e: any) {
@@ -213,7 +229,7 @@ export class TicketsController {
     const payment = booking.Payment;
     const passengers = (booking.passenger ?? []) as any[];
     const seatNumbers = booking.seatNumbers ?? [];
-    const plate = bus?.plate ? (bus.plate as any) : null;
+    const plate = bus?.plate ? bus.plate : null;
 
     const fmt = (n: number) =>
       String(n).replace(/[0-9]/g, (d) => '٠١٢٣٤٥٦٧٨٩'[+d]);

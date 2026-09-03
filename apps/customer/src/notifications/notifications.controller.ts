@@ -1,4 +1,15 @@
-import { Controller, Get, Patch, Delete, Param, Query, Req, UseGuards, Body, Post } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Patch,
+  Delete,
+  Param,
+  Query,
+  Req,
+  UseGuards,
+  Body,
+  Post,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 import { NotificationsService } from './notifications.service';
@@ -54,10 +65,7 @@ export class NotificationsController {
 
   @Delete('device-token/:token')
   removeToken(@Req() req: Request, @Param('token') token: string) {
-    return this.svc.unregisterDeviceToken(
-      (req as any).user.id,
-      token,
-    );
+    return this.svc.unregisterDeviceToken((req as any).user.id, token);
   }
 
   @Get('device-tokens')

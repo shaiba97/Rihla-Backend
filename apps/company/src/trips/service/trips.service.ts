@@ -684,9 +684,7 @@ export class TripsService {
    */
   private async getHeldSeats(tripId: string): Promise<number[]> {
     try {
-      const keys = await this.redisService.keys(
-        `booking-session:*:${tripId}`,
-      );
+      const keys = await this.redisService.keys(`booking-session:*:${tripId}`);
       if (keys.length === 0) return [];
       const values = await Promise.all(
         keys.map((k) => this.redisService.get(k)),

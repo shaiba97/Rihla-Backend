@@ -3,5 +3,9 @@ import { PrismaModule } from '@app/prisma';
 import { BlogController } from './blog.controller';
 import { BlogService } from './blog.service';
 
-@Module({ imports: [PrismaModule], controllers: [BlogController], providers: [BlogService] })
+@Module({
+  imports: [PrismaModule],
+  controllers: [BlogController],
+  providers: [BlogService],
+})
 export class BlogModule {}

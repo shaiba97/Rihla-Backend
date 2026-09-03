@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Param, Body, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  Body,
+  UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
@@ -12,17 +22,34 @@ if (!fs.existsSync(payoutsDir)) fs.mkdirSync(payoutsDir, { recursive: true });
 const payoutUpload = FileInterceptor('receiptFile', {
   storage: memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_req: any, file: Express.Multer.File, cb: (err: Error | null, accept: boolean) => void) => {
-    if (/^image\/(jpeg|jpg|png|webp|heic)$/i.test(file.mimetype) || file.mimetype === 'application/pdf') {
+  fileFilter: (
+    _req: any,
+    file: Express.Multer.File,
+    cb: (err: Error | null, accept: boolean) => void,
+  ) => {
+    if (
+      /^image\/(jpeg|jpg|png|webp|heic)$/i.test(file.mimetype) ||
+      file.mimetype === 'application/pdf'
+    ) {
       cb(null, true);
     } else {
-      cb(new BadRequestException('نوع الملف غير مدعوم — JPEG, PNG, WebP, HEIC, PDF'), false);
+      cb(
+        new BadRequestException(
+          'نوع الملف غير مدعوم — JPEG, PNG, WebP, HEIC, PDF',
+        ),
+        false,
+      );
     }
   },
 });
 
 function captureReceipt(file: Express.Multer.File | undefined) {
-  if (!file?.buffer) return { receiptFile: undefined, receiptData: undefined, receiptMime: undefined };
+  if (!file?.buffer)
+    return {
+      receiptFile: undefined,
+      receiptData: undefined,
+      receiptMime: undefined,
+    };
   const ext = path.extname(file.originalname).toLowerCase();
   const filename = `payout_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`;
   try {
@@ -43,29 +70,44 @@ export class AdminPayoutController {
   constructor(private readonly svc: AdminPayoutService) {}
 
   @Get('companies')
-  getCompanies() { return this.svc.getCompanies(); }
+  getCompanies() {
+    return this.svc.getCompanies();
+  }
 
   @Get('company/:id/trips')
-  getCompanyTrips(@Param('id') id: string) { return this.svc.getCompanyTrips(id); }
+  getCompanyTrips(@Param('id') id: string) {
+    return this.svc.getCompanyTrips(id);
+  }
 
   @Post('pay-trip/:tripId')
   @UseInterceptors(payoutUpload)
-  payTrip(@Param('tripId') tripId: string, @UploadedFile() file: Express.Multer.File) {
+  payTrip(
+    @Param('tripId') tripId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
     return this.svc.payTrip(tripId, captureReceipt(file));
   }
 
   @Post('pay-all/:companyId')
   @UseInterceptors(payoutUpload)
-  payAll(@Param('companyId') companyId: string, @UploadedFile() file: Express.Multer.File) {
+  payAll(
+    @Param('companyId') companyId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
     return this.svc.payAll(companyId, captureReceipt(file));
   }
 
   @Get('requests')
-  getRequests() { return this.svc.getRequests(); }
+  getRequests() {
+    return this.svc.getRequests();
+  }
 
   @Post('requests/:id/approve')
   @UseInterceptors(payoutUpload)
-  approveRequest(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+  approveRequest(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
     return this.svc.approveRequest(id, captureReceipt(file));
   }
 
@@ -75,8 +117,12 @@ export class AdminPayoutController {
   }
 
   @Get('history')
-  getHistory() { return this.svc.getHistory(); }
+  getHistory() {
+    return this.svc.getHistory();
+  }
 
   @Get('stats')
-  getStats() { return this.svc.getStats(); }
+  getStats() {
+    return this.svc.getStats();
+  }
 }
