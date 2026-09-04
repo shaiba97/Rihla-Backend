@@ -2,103 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as path from 'path';
 import * as fs from 'fs';
 import { PrismaService } from '@app/prisma';
+import PDFKit from 'pdfkit';
 
-import { PDFDocument, PDFFont, PDFPage, rgb } from 'pdf-lib';
-
-// The following JS-only packages ship no type definitions; load them via
-// require so the build does not need ambient module declarations.
-/* eslint-disable @typescript-eslint/no-require-imports */
-const fontkit: any = require('@pdf-lib/fontkit');
-
-const arabicReshaper: {
-  convertArabic(text: string): string;
-} = require('arabic-reshaper');
-
-const bidiFactory: () => {
-  getEmbeddingLevels(
-    text: string,
-    direction?: 'ltr' | 'rtl',
-  ): {
-    levels: Uint8Array;
-    paragraphs: { start: number; end: number; level: number }[];
-  };
-  getReorderSegments(
-    text: string,
-    embeddingLevels: any,
-    lineStart?: number,
-    lineEnd?: number,
-  ): [number, number][];
-} = require('bidi-js');
-
-const QRCode: {
-  toBuffer(text: string, options?: any): Promise<Buffer>;
-} = require('qrcode');
-/* eslint-enable @typescript-eslint/no-require-imports */
-
-const bidi = bidiFactory();
-
-// ─────────────────────────────────────────────────────────────
-// DESIGN TOKENS  (mapped from the approved HTML ticket design)
-// ─────────────────────────────────────────────────────────────
-// Design tokens mapped from the approved HTML ticket design
-const C = {
-  primary: hex('00685f'), // primary
-  onPrimary: hex('ffffff'), // on-primary
-  primaryContainer: hex('008378'), // primary-container
-  onPrimaryContainer: hex('00201d'), // on-primary-container
-  primaryFixed: hex('89f5e7'), // primary-fixed
-  onPrimaryFixed: hex('00201d'), // on-primary-fixed
-  primaryFixedDim: hex('6bd8cb'), // primary-fixed-dim
-  onPrimaryFixedVariant: hex('005049'), // on-primary-fixed-variant
-  secondary: hex('316763'), // secondary
-  onSecondary: hex('ffffff'), // on-secondary
-  secondaryContainer: hex('b5ede7'), // secondary-container
-  onSecondaryContainer: hex('376d69'), // on-secondary-container
-  secondaryFixed: hex('b5ede7'), // secondary-fixed
-  onSecondaryFixed: hex('00201e'), // on-secondary-fixed
-  secondaryFixedDim: hex('9ad1cb'), // secondary-fixed-dim
-  onSecondaryFixedVariant: hex('144f4b'), // on-secondary-fixed-variant
-  tertiary: hex('00685c'), // tertiary
-  onTertiary: hex('ffffff'), // on-tertiary
-  tertiaryContainer: hex('008374'), // tertiary-container
-  onTertiaryContainer: hex('f4fffb'), // on-tertiary-container
-  tertiaryFixed: hex('6ef9e2'), // tertiary-fixed
-  onTertiaryFixed: hex('00201b'), // on-tertiary-fixed
-  tertiaryFixedDim: hex('4ddcc6'), // tertiary-fixed-dim
-  onTertiaryFixedVariant: hex('005047'), // on-tertiary-fixed-variant
-  surface: hex('effcf9'), // surface
-  onSurface: hex('121e1c'), // on-surface
-  surfaceDim: hex('d0ddda'), // surface-dim
-  surfaceBright: hex('effcf9'), // surface-bright
-  surfaceContainerLowest: hex('ffffff'), // surface-container-lowest
-  surfaceContainerLow: hex('e9f6f3'), // surface-container-low
-  surfaceContainer: hex('e4f1ee'), // surface-container
-  surfaceContainerHigh: hex('deebe8'), // surface-container-high
-  surfaceContainerHighest: hex('d8e5e2'), // surface-container-highest
-  surfaceVariant: hex('d8e5e2'), // surface-variant
-  onSurfaceVariant: hex('3d4947'), // on-surface-variant
-  outline: hex('6d7a77'), // outline
-  outlineVariant: hex('bcc9c6'), // outline-variant
-  error: hex('ba1a1a'), // error
-  onError: hex('ffffff'), // on-error
-  errorContainer: hex('ffdad6'), // error-container
-  onErrorContainer: hex('93000a'), // on-error-container
-  inverseSurface: hex('273331'), // inverse-surface
-  onInverseSurface: hex('e6f3f1'), // inverse-on-surface
-  inversePrimary: hex('6bd8cb'), // inverse-primary
-  textPrimary: hex('134E4A'), // textPrimary (custom)
-  gray: hex('6B7280'), // gray (custom)
-
-  // Spacing tokens (from design system) - converted to points for PDF (1px = 0.75pt)
-  baseUnit: 6, // 8px = 6pt
-  stackSm: 9, // 12px = 9pt
-  gutter: 12, // 16px = 12pt
-  stackMd: 18, // 24px = 18pt
-  marginMobile: 12, // 16px = 12pt
-  marginDesktop: 24, // 32px = 24pt
-  stackLg: 30, // 40px = 30pt
-};
-
+// Interface for ticket data (same as before)
 interface TicketData {
   bookingId: string;
   customerName?: string;
@@ -114,8 +20,107 @@ interface TicketData {
 export class PDFService {
   private readonly logger = new Logger(PDFService.name);
   private outputDir = './upload';
-  constructor(private readonly prisma: PrismaService) {}
+  private tajawalRegular: Buffer | null = null;
+  private tajawalBold: Buffer | null = null;
+  private logoBuffer: Buffer | null = null;
 
+  constructor(private readonly prisma: PrismaService) {
+    this.loadResources();
+  }
+
+  private loadResources() {
+    try {
+      // Load Tajawal fonts for Arabic support
+      const fontPathRegular = path.join(__dirname, '..', '..', '..', 'fonts', 'Tajawal-Regular.ttf');
+      const fontPathBold = path.join(__dirname, '..', '..', '..', 'fonts', 'Tajawal-Bold.ttf');
+
+      if (fs.existsSync(fontPathRegular) && fs.existsSync(fontPathBold)) {
+        this.tajawalRegular = fs.readFileSync(fontPathRegular);
+        this.tajawalBold = fs.readFileSync(fontPathBold);
+        this.logger.log('Loaded Tajawal fonts for Arabic support');
+      }
+    } catch (error) {
+      this.logger.warn('Could not load custom fonts, using defaults');
+    }
+
+    try {
+      // Load logo
+      const logoPath = path.join(__dirname, '..', '..', '..', 'assets', 'companyLogo.png');
+      if (fs.existsSync(logoPath)) {
+        this.logoBuffer = fs.readFileSync(logoPath);
+        this.logger.log('Loaded company logo');
+      }
+    } catch (error) {
+      this.logger.warn('Could not load company logo, continuing without it');
+    }
+  }
+
+  // Helper function to reverse Arabic text for proper display in PDFKit
+  private reverseArabic(text: string): string {
+    if (!text) return '';
+    // Simple character reversal for Arabic text
+    // Note: For production, consider using a proper Arabic shaping library
+    return text.split('').reverse().join('');
+  }
+
+  // Helper functions for formatting
+  private toArabicIndic(num: any): string {
+    if (num == null || num === '') return '—';
+    return String(num).replace(/[0-9]/g, (d) => '٠١٢٣٤٥٦٧٨٩'[+d]);
+  }
+
+  private formatDateShort(val: any): string {
+    if (!val) return '—';
+    const d = val instanceof Date ? val : new Date(val);
+    if (isNaN(d.getTime())) return String(val);
+    const dd = this.toArabicIndic(String(d.getDate()).padStart(2, '0'));
+    const mm = this.toArabicIndic(String(d.getMonth() + 1).padStart(2, '0'));
+    const yy = this.toArabicIndic(String(d.getFullYear()));
+    return `${dd} / ${mm} / ${yy}`;
+  }
+
+  private formatTime(val: any): string {
+    if (!val) return '—';
+    let h: number, m: number;
+    if (typeof val === 'string' && /^\d{1,2}:\d{2}/.test(val)) {
+      [h, m] = val.split(':').map(Number);
+    } else {
+      const d = val instanceof Date ? val : new Date(val);
+      h = d.getHours();
+      m = d.getMinutes();
+    }
+    const period = h < 12 ? 'ص' : 'م';
+    const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
+    return `${this.toArabicIndic(String(h12).padStart(2, '0'))}:${this.toArabicIndic(String(m).padStart(2, '0'))} ${period}`;
+  }
+
+  private formatMoney(amount: any, currency = 'جنيه سوداني'): string {
+    if (amount == null || amount === '') return '—';
+    const n = Number(amount);
+    const fixed = n.toFixed(2).replace('.', '٫');
+    return `${this.toArabicIndic(fixed)} ${currency}`;
+  }
+
+  private genderLabel(g: any): string {
+    const map: Record<string, string> = {
+      MALE: 'ذكر',
+      FEMALE: 'أنثى',
+      male: 'ذكر',
+      female: 'أنثى',
+      M: 'ذكر',
+      F: 'أنثى',
+    };
+    return map[g] || g || '—';
+  }
+
+  // Get font names based on available resources
+  private getFontNames(): { regular: string; bold: string } {
+    const fontRegular = this.tajawalRegular ? 'Tajawal' : 'Helvetica';
+    const fontBold = this.tajawalBold ? 'TajawalBold' : 'Helvetica-Bold';
+    return { regular: fontRegular, bold: fontBold };
+  }
+
+  // Main ticket generation using PDFKit
   async generateTicket(
     bookingId: string,
     paymentData?: any,
@@ -170,7 +175,7 @@ export class PDFService {
         qrData: `BOOKING:${bookingId}`,
       };
 
-      const buf = await generateTicketBuffer(ticketData);
+      const buf = await this.generateTicketBuffer(ticketData);
       buffer = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
       fs.writeFileSync(outputPath, buffer);
       this.logger.log(
@@ -210,7 +215,7 @@ export class PDFService {
         }));
       });
 
-      const buf = await generatePassengerListBuffer(trip, passengerRows);
+      const buf = await this.generatePassengerListBuffer(trip, passengerRows);
       fs.writeFileSync(outputPath, Buffer.from(buf));
       this.logger.log(
         `Passenger list saved -> ${outputPath} (${(buf.length / 1024).toFixed(1)} KB)`,
@@ -226,671 +231,726 @@ export class PDFService {
 
     return { publicUrl, filePath: outputPath };
   }
-}
 
-// ─────────────────────────────────────────────────────────────
-// COLOR / NUMBER HELPERS
-// ─────────────────────────────────────────────────────────────
-function hex(v: string) {
-  const n = parseInt(v.replace('#', ''), 16);
-  return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
-}
-
-function toAr(n: any) {
-  return String(n ?? '').replace(/[0-9]/g, (d: string) => '٠١٢٣٤٥٦٧٨٩'[+d]);
-}
-
-/** "2026-01-15" → "٢٥ / ١٠ / ٢٠٢٣" style (dd / mm / yyyy) */
-function formatDateShort(val: any) {
-  if (!val) return '—';
-  const d = val instanceof Date ? val : new Date(val);
-  if (isNaN(d as any)) return String(val);
-  const dd = toAr(String(d.getDate()).padStart(2, '0'));
-  const mm = toAr(String(d.getMonth() + 1).padStart(2, '0'));
-  const yy = toAr(String(d.getFullYear()));
-  return `${dd} / ${mm} / ${yy}`;
-}
-
-/** "07:30" or Date → "٠٩:٠٠ ص" */
-function formatTime(val: any) {
-  if (!val) return '—';
-  let h: number, m: number;
-  if (typeof val === 'string' && /^\d{1,2}:\d{2}/.test(val)) {
-    [h, m] = val.split(':').map(Number);
-  } else {
-    const d = val instanceof Date ? val : new Date(val);
-    h = d.getHours();
-    m = d.getMinutes();
-  }
-  const period = h < 12 ? 'ص' : 'م';
-  const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
-  return `${toAr(String(h12).padStart(2, '0'))}:${toAr(String(m).padStart(2, '0'))} ${period}`;
-}
-
-/** 465 → "٤٦٥٫٠٠ جنيه سوداني" */
-function formatMoney(amount: any, currency = 'جنيه سوداني') {
-  if (amount == null || amount === '') return '—';
-  const n = Number(amount);
-  const fixed = n.toFixed(2).replace('.', '٫');
-  return `${toAr(fixed)} ${currency}`;
-}
-
-function genderLabel(g: any) {
-  const map: Record<string, string> = {
-    MALE: 'ذكر',
-    FEMALE: 'أنثى',
-    male: 'ذكر',
-    female: 'أنثى',
-    M: 'ذكر',
-    F: 'أنثى',
-  };
-  return map[g] || g || '—';
-}
-
-// ─────────────────────────────────────────────────────────────
-// ARABIC SHAPING + BIDI  (pdf-lib has no shaping; fonts must be
-// pre-shaped and reordered into visual order before drawing)
-// ─────────────────────────────────────────────────────────────
-function asVisual(text: any): string {
-  if (text == null || text === '') return '';
-  const src = String(text);
-  const shaped = arabicReshaper.convertArabic(src);
-  const embedding = bidi.getEmbeddingLevels(shaped, 'rtl');
-  const chars = shaped.split('');
-  bidi
-    .getReorderSegments(shaped, embedding)
-    .forEach(([s, e]: [number, number]) => {
-      const seg = chars.slice(s, e + 1).reverse();
-      for (let i = s; i <= e; i++) chars[i] = seg[i - s];
-    });
-  return chars.join('');
-}
-
-// ─────────────────────────────────────────────────────────────
-// FONT / LOGO LOADING
-// ─────────────────────────────────────────────────────────────
-function fontPaths() {
-  const cwd = process.cwd();
-  const candidates = [
-    path.join(__dirname, '..', '..', '..', 'fonts'),
-    path.join(__dirname, '..', 'fonts'),
-    path.join(__dirname, 'fonts'),
-    path.join(cwd, 'fonts'),
-  ];
-  for (const dir of candidates) {
-    const r = path.join(dir, 'Tajawal-Regular.ttf');
-    const b = path.join(dir, 'Tajawal-Bold.ttf');
-    if (fs.existsSync(r) && fs.existsSync(b)) {
-      return { regular: fs.readFileSync(r), bold: fs.readFileSync(b) };
-    }
-  }
-  throw new Error('Tajawal fonts not found. Put them in /backend/fonts/');
-}
-
-function logoBytes(): Uint8Array | null {
-  const cwd = process.cwd();
-  const candidates = [
-    path.join(__dirname, '..', '..', '..', 'assets', 'companyLogo.png'),
-    path.join(__dirname, '..', 'assets', 'companyLogo.png'),
-    path.join(__dirname, 'assets', 'companyLogo.png'),
-    path.join(cwd, 'assets', 'companyLogo.png'),
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p)) {
-      return fs.readFileSync(p);
-    }
-  }
-  return null;
-}
-
-async function qrPngBytes(text: string): Promise<Uint8Array | null> {
-  try {
-    const buf = await QRCode.toBuffer(text, {
-      type: 'png',
-      width: 320,
-      margin: 1,
-      errorCorrectionLevel: 'Q',
-    });
-    return new Uint8Array(buf);
-  } catch {
-    return null;
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// DRAWING PRIMITIVES  (pdf-lib manual layout; bottom-left origin)
-// ─────────────────────────────────────────────────────────────
-interface Ctx {
-  doc: PDFDocument;
-  page: PDFPage;
-  reg: PDFFont;
-  bold: PDFFont;
-  y: number;
-}
-
-const PAGE_W = 595.28; // A4 portrait width (pt)
-const PAGE_H = 841.89; // A4 portrait height (pt)
-const MARGIN = C.marginDesktop; // marginDesktop: 32px = 24pt
-
-/** Draw RTL text at RIGHT edge = x, baseline = ctx.y. Returns ctx.y unchanged. */
-function draw(
-  ctx: Ctx,
-  x: number,
-  textStr: string,
-  size: number,
-  opts: {
-    bold?: boolean;
-    color?: ReturnType<typeof rgb>;
-    right?: boolean;
-    width?: number;
-  } = {},
-) {
-  const t = asVisual(textStr);
-  if (!t) return;
-  const font = opts.bold === false ? ctx.reg : opts.bold ? ctx.bold : ctx.reg;
-  const w = font.widthOfTextAtSize(t, size);
-  const dx = opts.right && opts.width != null ? x + (opts.width ?? 0) - w : x;
-  ctx.page.drawText(t, {
-    x: dx,
-    y: ctx.y,
-    size,
-    font,
-    color: opts.color ?? C.textPrimary,
-  });
-}
-
-function drawCentered(
-  ctx: Ctx,
-  midX: number,
-  textStr: string,
-  size: number,
-  opts: any = {},
-) {
-  const t = asVisual(textStr);
-  if (!t) return;
-  const font = opts.bold === false ? ctx.reg : opts.bold ? ctx.bold : ctx.reg;
-  const w = font.widthOfTextAtSize(t, size);
-  ctx.page.drawText(t, {
-    x: midX - w / 2,
-    y: ctx.y,
-    size,
-    font,
-    color: opts.color ?? C.textPrimary,
-  });
-}
-
-function hLine(
-  ctx: Ctx,
-  x: number,
-  y: number,
-  w: number,
-  color: ReturnType<typeof rgb>,
-) {
-  ctx.page.drawLine({
-    start: { x, y },
-    end: { x: x + w, y },
-    thickness: 1,
-    color,
-  });
-}
-
-// ─────────────────────────────────────────────────────────────
-// RENDER TICKET  (mirrors the approved HTML design)
-// ─────────────────────────────────────────────────────────────
-async function generateTicketBuffer(
-  ticketData: TicketData,
-): Promise<Uint8Array> {
-  const doc = await PDFDocument.create();
-  (doc as any).registerFontkit(fontkit);
-  const fonts = fontPaths();
-  const reg = await doc.embedFont(fonts.regular);
-  const bold = await doc.embedFont(fonts.bold);
-  const page = doc.addPage([PAGE_W, PAGE_H]);
-  page.drawRectangle({
-    x: 0,
-    y: 0,
-    width: PAGE_W,
-    height: PAGE_H,
-    color: rgb(1, 1, 1),
-  });
-
-  const ctx: Ctx = { doc, page, reg, bold, y: PAGE_H - MARGIN };
-  const W = PAGE_W - 2 * MARGIN;
-
-  // Logo (if present)
-  const logo = logoBytes();
-  if (logo) {
-    try {
-      const png = await doc.embedPng(logo);
-      const aspect = png.height / png.width;
-      const lw = 30;
-      const lh = lw * aspect;
-      page.drawImage(png, {
-        x: MARGIN + 2,
-        y: ctx.y - lh,
-        width: lw,
-        height: lh,
+  private async generateTicketBuffer(ticketData: TicketData): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const doc = new PDFKit({
+        size: 'A4',
+        margin: 32, // 32px margin as specified in design tokens
+        layout: 'portrait',
+        autoFirstPage: false, // We'll add the page manually
       });
-    } catch {
-      /* logo is optional */
-    }
-  }
 
-  // Header strip (bg surface-container-low, full width)
-  ctx.y -= 4;
-  {
-    // brand on the right (RTL top)
-    draw(ctx, PAGE_W - MARGIN - 2, 'تفية', 24, {
-      bold: true,
-      color: C.primary,
-      right: true,
-      width: 200,
-    });
-    ctx.y -= 20;
-    draw(ctx, PAGE_W - MARGIN - 2, 'تذكرة سفر رسمية', 9, {
-      color: C.gray,
-      right: true,
-      width: 200,
-    });
+      const chunks: Buffer[] = [];
+      doc.on('data', (chunk) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', (err) => reject(err));
 
-    // bus info + plate
-    const busName = ticketData.bus?.name || '—';
-    const plate = ticketData.bus?.plate || ticketData.bus?.plateNumbers || {};
-    const plateParts = [plate.numbers, plate.arabic, plate.english]
-      .filter(Boolean)
-      .join('   ');
-    const plateLtr =
-      `${plate.english || ''} ${plate.numbers || ''}`.trim() || plateParts;
+      // Start the PDF
+      doc.addPage();
 
-    ctx.y -= 26;
-    draw(ctx, PAGE_W - MARGIN - 2, 'بيانات الحافلة', 8, {
-      color: C.onSurfaceVariant,
-      right: true,
-      width: 120,
-    });
-    ctx.y -= 13;
-    draw(ctx, PAGE_W - MARGIN - 2, busName, 11, {
-      bold: true,
-      color: C.primary,
-      right: true,
-      width: 200,
-    });
+      // Constants for design
+      const PAGE_WIDTH = doc.page.width;
+      const PAGE_HEIGHT = doc.page.height;
+      const MARGIN = 32; // 32px margin
+      const CONTENT_WIDTH = PAGE_WIDTH - 2 * MARGIN;
 
-    // plate (top right of the same strip)
-    draw(ctx, MARGIN + 2, plateLtr, 10, {
-      bold: true,
-      color: C.primary,
-      right: false,
-      width: 120,
-    });
-    ctx.y -= 12;
-    draw(ctx, MARGIN + 2, 'رقم اللوحة', 8, {
-      color: C.onSurfaceVariant,
-      right: false,
-      width: 120,
-    });
-    ctx.y -= 8;
-  }
+      // Colors (only the three specified)
+      const BLACK = '#000000';
+      const WHITE = '#FFFFFF';
+      const TAFIYA_TEAL = '#042F2E';
 
-  // Identification: booking holder
-  ctx.y -= 10;
-  hLine(ctx, MARGIN, ctx.y, W, C.outlineVariant);
-  ctx.y -= 14;
-  draw(ctx, PAGE_W - MARGIN - 2, 'صاحب الحجز', 8, {
-    color: C.onSurfaceVariant,
-    right: true,
-    width: 160,
-  });
-  ctx.y -= 16;
-  draw(ctx, PAGE_W - MARGIN - 2, ticketData.customerName || '—', 15, {
-    bold: true,
-    right: true,
-    width: W - 40,
-  });
-  ctx.y -= 14;
+      // Font setup
+      const { regular: fontRegular, bold: fontBold } = this.getFontNames();
 
-  // Trip timeline
-  const trip = ticketData.trip;
-  const dep = brief(trip);
-  draw(ctx, MARGIN + 2, 'محطة المغادرة', 8, {
-    color: C.onSurfaceVariant,
-    right: true,
-    width: 200,
-  });
-  draw(ctx, PAGE_W - MARGIN - 2, formatTime(dep.departureTime), 12, {
-    bold: true,
-    color: C.primary,
-    right: true,
-    width: 140,
-  });
-  ctx.y -= 18;
-  draw(ctx, MARGIN + 2, dep.fromCity || '—', 15, {
-    bold: true,
-    right: true,
-    width: 200,
-  });
-  draw(ctx, PAGE_W - MARGIN - 2, 'المغادرة', 8, {
-    color: C.gray,
-    right: true,
-    width: 140,
-  });
-  ctx.y -= 15;
-  draw(ctx, MARGIN + 2, `${dep.fromState} ${dep.fromStation}`, 9, {
-    color: C.onSurfaceVariant,
-    right: true,
-    width: 200,
-  });
-  draw(ctx, PAGE_W - MARGIN - 2, formatDateShort(dep.departureDate), 9, {
-    color: C.tertiary,
-    right: true,
-    width: 140,
-  });
-  ctx.y -= 14;
+      // Register custom fonts if available
+      if (this.tajawalRegular) {
+        doc.registerFont('Tajawal', this.tajawalRegular);
+      }
+      if (this.tajawalBold) {
+        doc.registerFont('TajawalBold', this.tajawalBold);
+      }
 
-  // arrival
-  draw(ctx, MARGIN + 2, 'محطة الوصول', 8, {
-    color: C.onSurfaceVariant,
-    right: true,
-    width: 200,
-  });
-  draw(ctx, PAGE_W - MARGIN - 2, formatTime(dep.arrivalTime), 12, {
-    bold: true,
-    color: C.tertiary,
-    right: true,
-    width: 140,
-  });
-  ctx.y -= 18;
-  draw(ctx, MARGIN + 2, dep.toCity || '—', 15, {
-    bold: true,
-    right: true,
-    width: 200,
-  });
-  draw(ctx, PAGE_W - MARGIN - 2, 'الوصول', 8, {
-    color: C.gray,
-    right: true,
-    width: 140,
-  });
-  ctx.y -= 15;
-  draw(ctx, MARGIN + 2, `${dep.toState} ${dep.toStation}`, 9, {
-    color: C.onSurfaceVariant,
-    right: true,
-    width: 200,
-  });
-  draw(ctx, PAGE_W - MARGIN - 2, formatDateShort(dep.arrivalDate), 9, {
-    color: C.tertiary,
-    right: true,
-    width: 140,
-  });
-  ctx.y -= 12;
+      // Start Y position
+      let y = MARGIN;
 
-  // Tear dashed line
-  ctx.y -= 6;
-  ctx.page.drawLine({
-    start: { x: MARGIN + 16, y: ctx.y },
-    end: { x: PAGE_W - MARGIN - 16, y: ctx.y },
-    thickness: 1.5,
-    color: C.outlineVariant,
-    dashArray: [3, 3],
-  });
-  ctx.y -= 16;
+      // SECTION 1 — HEADER
+      // Right-hand side: [TAFIYA LOGO] تفية
+      // Left-hand side: تاريخ إنشاء التذكرة + ticket.createdAt
 
-  // Passengers
-  const passengers = ticketData.passengers ?? [];
-  const seatNumbers = ticketData.seatNumbers ?? [];
-  draw(
-    ctx,
-    PAGE_W - MARGIN - 2,
-    `قائمة الركاب (${toAr(passengers.length)})`,
-    10,
-    { bold: true, color: C.onSurfaceVariant, right: true, width: 200 },
-  );
-  ctx.y -= 14;
-  passengers.forEach((p: any, i: number) => {
-    const name = p.name || '—';
-    const age = p.age ?? '—';
-    const gender = genderLabel(p.gender);
-    const seat = seatNumbers[i] != null ? toAr(seatNumbers[i]) : '—';
-    const y0 = ctx.y;
-    // row card
-    ctx.page.drawRectangle({
-      x: MARGIN,
-      y: ctx.y - 26,
-      width: W,
-      height: 26,
-      color: i % 2 === 0 ? hex('ffffff') : hex('f4fbf9'),
-      borderColor: C.outlineVariant,
-      borderWidth: 1,
-    });
-    ctx.y -= 13;
-    draw(ctx, MARGIN + 12, name, 12, { bold: true, right: true, width: W / 2 });
-    draw(ctx, PAGE_W - MARGIN - 12, 'رقم المقعد', 8, {
-      color: C.onSurfaceVariant,
-      right: true,
-      width: 90,
-    });
-    ctx.y -= 12;
-    draw(ctx, MARGIN + 12, `${gender} • ${toAr(age)} سنة`, 9, {
-      color: C.onSurfaceVariant,
-      right: true,
-      width: W / 2,
-    });
-    draw(ctx, PAGE_W - MARGIN - 12, seat, 11, {
-      bold: true,
-      color: C.primary,
-      right: true,
-      width: 90,
-    });
-    ctx.y = y0 - 34;
-  });
-  ctx.y -= 4;
+      // Header content
+      const headerTop = y;
+      const logoSize = 40; // 40x40 pixels
+      let logoX = PAGE_WIDTH - MARGIN - logoSize;
+      let logoY = headerTop;
 
-  // Payment summary
-  const pay = ticketData.payment || {};
-  const seatCount = passengers.length || 1;
-  const price = Number(pay.price ?? pay.singlePrice ?? 0);
-  const platformFee = Number(pay.platformFeeAmount ?? 0);
-  const total = Number(pay.totalAmount ?? 0);
-  const currency = pay.currency || 'جنيه سوداني';
+      // If logo exists, embed it
+      if (this.logoBuffer) {
+        try {
+          doc.image(this.logoBuffer, logoX, logoY, { width: logoSize, height: logoSize });
+          // Adjust the text position to be left of the logo with a gap
+          const textWidth = (PAGE_WIDTH - 2 * MARGIN) / 2 - 10 - logoSize - 10; // reduce width for logo and gap
+          // Left side: creation date
+          const createdAtText = `تاريخ إنشاء التذكرة: ${new Date().toLocaleDateString('ar-SA')}`;
+          doc
+            .fontSize(10)
+            .fill(BLACK)
+            .text(createdAtText, MARGIN, y, {
+              width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
+              align: 'left'
+            });
 
-  hLine(ctx, MARGIN, ctx.y, W, C.outlineVariant);
-  ctx.y -= 14;
-  draw(ctx, PAGE_W - MARGIN - 2, 'تفاصيل الدفع', 10, {
-    bold: true,
-    color: C.onSurfaceVariant,
-    right: true,
-    width: 200,
-  });
-  ctx.y -= 16;
-  pv(ctx, `سعر التذكرة (${toAr(seatCount)})`, formatMoney(price, currency));
-  pv(ctx, 'رسوم المنصة', formatMoney(platformFee, currency));
-  ctx.y -= 4;
-  hLine(ctx, MARGIN, ctx.y, W, C.outlineVariant);
-  ctx.y -= 12;
-  // total
-  draw(ctx, PAGE_W - MARGIN - 2, 'الإجمالي', 14, {
-    bold: true,
-    right: true,
-    width: 200,
-  });
-  draw(ctx, MARGIN + 2, formatMoney(total, currency), 11, {
-    bold: true,
-    color: C.primary,
-  });
-  ctx.y -= 16;
+          // Right side: brand name, positioned to the left of the logo
+          doc
+            .fontSize(24)
+            .fill(TAFIYA_TEAL)
+            .font(fontBold)
+            .text('تفية', logoX - 10, y, { // 10 pixels gap between text and logo
+              width: textWidth,
+              align: 'right'
+            });
+        } catch (error) {
+          this.logger.warn('Could not embed logo: ' + error.message);
+          // Fallback to original text positioning without logo
+          const createdAtText = `تاريخ إنشاء التذكرة: ${new Date().toLocaleDateString('ar-SA')}`;
+          doc
+            .fontSize(10)
+            .fill(BLACK)
+            .text(createdAtText, MARGIN, y, {
+              width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
+              align: 'left'
+            });
 
-  // QR + reference
-  ctx.y -= 6;
-  const qrBytes = ticketData.qrData
-    ? await qrPngBytes(ticketData.qrData)
-    : null;
-  if (qrBytes) {
-    try {
-      const qr = await doc.embedPng(qrBytes);
-      const size = 108;
-      ctx.page.drawImage(qr, {
-        x: PAGE_W / 2 - size / 2,
-        y: ctx.y - size,
-        width: size,
-        height: size,
+          // Right side: brand name
+          doc
+            .fontSize(24)
+            .fill(TAFIYA_TEAL)
+            .font(fontBold)
+            .text('تفية', MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2 + 10, y, {
+              width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
+              align: 'right'
+            });
+        }
+      } else {
+        // No logo, original layout
+        const createdAtText = `تاريخ إنشاء التذكرة: ${new Date().toLocaleDateString('ar-SA')}`;
+        doc
+          .fontSize(10)
+          .fill(BLACK)
+          .text(createdAtText, MARGIN, y, {
+            width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
+            align: 'left'
+          });
+
+          // Right side: brand name
+          doc
+            .fontSize(24)
+            .fill(TAFIYA_TEAL)
+            .font(fontBold)
+            .text('تفية', MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2 + 10, y, {
+              width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
+              align: 'right'
+            });
+      }
+
+      y += 50; // Move down for next section (logo size 40 + gap 10)
+
+      // Add horizontal separator
+      doc
+        .lineWidth(1)
+        .strokeColor(TAFIYA_TEAL)
+        .moveTo(MARGIN, y)
+        .lineTo(PAGE_WIDTH - MARGIN, y)
+        .stroke();
+
+      y += 20; // Space after separator
+
+      // SECTION 2 — BUS DETAILS
+      // Two-column layout
+      const busName = ticketData.bus?.name || '—';
+      const plateData = ticketData.bus?.plate || {};
+
+      // Handle plate - it's stored as JSON
+      let plateDisplay = '—';
+      if (typeof plateData === 'string') {
+        try {
+          const plateObj = JSON.parse(plateData);
+          plateDisplay = `${plateObj.numbers || ''} ${plateObj.arabic || ''} ${plateObj.english || ''}`.trim();
+          if (!plateDisplay) plateDisplay = '—';
+        } catch (e) {
+          plateDisplay = plateData; // fallback to raw string
+        }
+      } else if (plateData && typeof plateData === 'object') {
+        plateDisplay = `${plateData.numbers || ''} ${plateData.arabic || ''} ${plateData.english || ''}`.trim();
+        if (!plateDisplay) plateDisplay = '—';
+      }
+
+      // Right column: bus name (label)
+      doc
+        .fontSize(10)
+        .fill(BLACK)
+        .text('اسم الحافلة', MARGIN, y, {
+          width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
+          align: 'left'
+        });
+
+      // Left column: plate number (label)
+      doc
+        .fontSize(10)
+        .fill(BLACK)
+        .text('رقم اللوحة', MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2, y, {
+          width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
+          align: 'left'
+        });
+
+      y += 15;
+
+      // Values
+      doc
+        .fontSize(12)
+        .fill(BLACK)
+        .font(fontBold)
+        .text(busName, MARGIN, y, {
+          width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
+          align: 'left'
+        });
+
+      doc
+        .fontSize(12)
+        .fill(BLACK)
+        .font(fontBold)
+        .text(plateDisplay, MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2, y, {
+          width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
+          align: 'left'
+        });
+
+      y += 25; // Space before separator
+
+      // Add horizontal separator
+      doc
+        .lineWidth(1)
+        .strokeColor(TAFIYA_TEAL)
+        .moveTo(MARGIN, y)
+        .lineTo(PAGE_WIDTH - MARGIN, y)
+        .stroke();
+
+      y += 20; // Space after separator
+
+      // SECTION 3 — TRIP DETAILS
+      // Two-column layout: departure (right) and arrival (left)
+
+      const trip = ticketData.trip;
+      if (trip) {
+        // Two columns: left and right
+        const colWidth = (PAGE_WIDTH - 2 * MARGIN) / 2;
+        const leftX = MARGIN;
+        const rightX = MARGIN + colWidth;
+
+        // Departure labels (right column visually)
+        doc
+          .fontSize(9)
+          .fill(BLACK)
+          .text('مدينة المغادرة', rightX, y, {
+            width: colWidth - 10,
+            align: 'left'
+          });
+
+          doc
+            .fontSize(9)
+            .fill(BLACK)
+            .text('المحطة', rightX, y + 20, {
+              width: colWidth - 10,
+              align: 'left'
+            });
+
+            doc
+              .fontSize(9)
+              .fill(BLACK)
+              .text('الولاية', rightX, y + 40, {
+                width: colWidth - 10,
+                align: 'left'
+              });
+
+              doc
+                .fontSize(9)
+                .fill(BLACK)
+                .text('وقت المغادرة', rightX, y + 60, {
+                  width: colWidth - 10,
+                  align: 'left'
+                });
+
+                doc
+                  .fontSize(9)
+                  .fill(BLACK)
+                  .text('تاريخ المغادرة', rightX, y + 80, {
+                    width: colWidth - 10,
+                    align: 'left'
+                  });
+
+        // Departure values
+        doc
+          .fontSize(11)
+          .fill(BLACK)
+          .font(fontBold)
+          .text(this.reverseArabic(trip?.fromCity || '—'), rightX, y, {
+            width: colWidth - 10,
+            align: 'left'
+          });
+
+          doc
+            .fontSize(11)
+            .fill(BLACK)
+            .font(fontBold)
+            .text(this.reverseArabic(trip?.fromStation || '—'), rightX, y + 20, {
+              width: colWidth - 10,
+              align: 'left'
+            });
+
+            doc
+              .fontSize(11)
+              .fill(BLACK)
+              .font(fontBold)
+              .text(this.reverseArabic(trip?.fromState || '—'), rightX, y + 40, {
+                width: colWidth - 10,
+                align: 'left'
+              });
+
+              doc
+                .fontSize(11)
+                .fill(BLACK)
+                .font(fontBold)
+                .text(this.formatTime(trip?.departureTime), rightX, y + 60, {
+                  width: colWidth - 10,
+                  align: 'left'
+                });
+
+                doc
+                  .fontSize(11)
+                  .fill(BLACK)
+                  .font(fontBold)
+                  .text(this.formatDateShort(trip?.departureDate), rightX, y + 80, {
+                    width: colWidth - 10,
+                    align: 'left'
+                  });
+
+        // Arrival labels (left column visually)
+        doc
+          .fontSize(9)
+          .fill(BLACK)
+          .text('مدينة الوصول', leftX, y, {
+            width: colWidth - 10,
+            align: 'left'
+          });
+
+          doc
+            .fontSize(9)
+            .fill(BLACK)
+            .text('المحطة', leftX, y + 20, {
+              width: colWidth - 10,
+              align: 'left'
+            });
+
+            doc
+              .fontSize(9)
+              .fill(BLACK)
+              .text('الولاية', leftX, y + 40, {
+                width: colWidth - 10,
+                align: 'left'
+              });
+
+              doc
+                .fontSize(9)
+                .fill(BLACK)
+                .text('وقت الوصول', leftX, y + 60, {
+                  width: colWidth - 10,
+                  align: 'left'
+                });
+
+                doc
+                  .fontSize(9)
+                  .fill(BLACK)
+                  .text('تاريخ الوصول', leftX, y + 80, {
+                    width: colWidth - 10,
+                    align: 'left'
+                  });
+
+        // Arrival values
+        doc
+          .fontSize(11)
+          .fill(BLACK)
+          .font(fontBold)
+          .text(this.reverseArabic(trip?.toCity || '—'), leftX, y, {
+            width: colWidth - 10,
+            align: 'left'
+          });
+
+          doc
+            .fontSize(11)
+            .fill(BLACK)
+            .font(fontBold)
+            .text(this.reverseArabic(trip?.toStation || '—'), leftX, y + 20, {
+              width: colWidth - 10,
+              align: 'left'
+            });
+
+            doc
+              .fontSize(11)
+              .fill(BLACK)
+              .font(fontBold)
+              .text(this.reverseArabic(trip?.toState || '—'), leftX, y + 40, {
+                width: colWidth - 10,
+                align: 'left'
+              });
+
+              doc
+                .fontSize(11)
+                .fill(BLACK)
+                .font(fontBold)
+                .text(this.formatTime(trip?.arrivalTime), leftX, y + 60, {
+                  width: colWidth - 10,
+                  align: 'left'
+                });
+
+                doc
+                  .fontSize(11)
+                  .fill(BLACK)
+                  .font(fontBold)
+                  .text(this.formatDateShort(trip?.arrivalDate), leftX, y + 80, {
+                    width: colWidth - 10,
+                    align: 'left'
+                  });
+
+        y += 100; // Move past the trip details
+      }
+
+      // Add horizontal separator
+      doc
+        .lineWidth(1)
+        .strokeColor(TAFIYA_TEAL)
+        .moveTo(MARGIN, y)
+        .lineTo(PAGE_WIDTH - MARGIN, y)
+        .stroke();
+
+      y += 20; // Space after separator
+
+      // SECTION 4 — PASSENGER DETAILS
+      // Title
+      doc
+        .fontSize(12)
+        .fill(BLACK)
+        .font(fontBold)
+        .text('بيانات الركاب', MARGIN, y, {
+          width: PAGE_WIDTH - 2 * MARGIN,
+          align: 'left'
+        });
+
+      y += 20;
+
+      // Table headers
+      const tableStartY = y;
+      const colNames = ['الاسم', 'العمر', 'النوع', 'المقعد'];
+      const colWidths = [
+        (PAGE_WIDTH - 2 * MARGIN) * 0.4,
+        (PAGE_WIDTH - 2 * MARGIN) * 0.2,
+        (PAGE_WIDTH - 2 * MARGIN) * 0.2,
+        (PAGE_WIDTH - 2 * MARGIN) * 0.2
+      ];
+      let colX = MARGIN;
+
+      doc
+        .fontSize(10)
+        .fill(BLACK)
+        .font(fontBold);
+
+      colNames.forEach((colName, index) => {
+        // For RTL text in headers, we need to reverse it
+        doc.text(this.reverseArabic(colName), colX, tableStartY, {
+          width: colWidths[index],
+          align: 'left'
+        });
+        colX += colWidths[index];
       });
-      ctx.y -= size;
-    } catch {
-      ctx.y -= 30;
-    }
-  } else {
-    ctx.y -= 30;
-  }
-  ctx.y -= 6;
-  const ref = ticketData.bookingId.slice(0, 13).toUpperCase();
-  drawCentered(ctx, PAGE_W / 2, ref, 9, {
-    bold: true,
-    color: C.onSurfaceVariant,
-  });
-  ctx.y -= 18;
 
-  // Help info box
-  ctx.page.drawRectangle({
-    x: MARGIN,
-    y: ctx.y - 40,
-    width: W,
-    height: 40,
-    color: hex('e6f2ef'),
-  });
-  ctx.y -= 24;
-  draw(
-    ctx,
-    MARGIN + 14,
-    'يرجى التواجد في المحطة قبل موعد المغادرة بـ ٣٠ دقيقة على الأقل. تأكد من إحضار بطاقة الهوية الوطنية أو الإقامة لمطابقة البيانات عند الصعود.',
-    7.5,
-    { color: C.onSecondaryContainer },
-  );
-  ctx.y = 0;
+      y += 15; // Space below headers
 
-  return doc.save();
-}
+      // Table rows
+      const passengers = ticketData.passengers || [];
+      const seatNumbers = ticketData.seatNumbers || [];
 
-function pv(ctx: Ctx, key: string, value: string) {
-  draw(ctx, PAGE_W - MARGIN - 2, key, 10, {
-    color: C.onSurfaceVariant,
-    right: true,
-    width: 200,
-  });
-  draw(ctx, MARGIN + 2, value, 10, { color: C.onSurfaceVariant });
-  ctx.y -= 14;
-}
+      passengers.forEach((passenger, index) => {
+        const rowY = y;
+        const seatNumber = seatNumbers[index] || '—';
 
-function brief(trip: any) {
-  return {
-    fromCity: trip?.fromCity,
-    fromState: trip?.fromState,
-    fromStation: trip?.fromStation,
-    departureTime: trip?.departureTime,
-    departureDate: trip?.departureDate,
-    toCity: trip?.toCity,
-    toState: trip?.toState,
-    toStation: trip?.toStation,
-    arrivalTime: trip?.arrivalTime,
-    arrivalDate: trip?.arrivalDate,
-  };
-}
+        // Alternate row colors for readability
+        if (index % 2 === 1) {
+          doc
+            .rect(MARGIN, rowY - 2, PAGE_WIDTH - 2 * MARGIN, 18)
+            .fillColor('#f8f9fa') // very light gray
+            .fill();
+        }
 
-// ─────────────────────────────────────────────────────────────
-// RENDER PASSENGER LIST  (A4 landscape)
-// ─────────────────────────────────────────────────────────────
-async function generatePassengerListBuffer(
-  trip: any,
-  passengerRows: any[],
-): Promise<Uint8Array> {
-  const doc = await PDFDocument.create();
-  (doc as any).registerFontkit(fontkit);
-  const fonts = fontPaths();
-  const reg = await doc.embedFont(fonts.regular);
-  const bold = await doc.embedFont(fonts.bold);
-  const page = doc.addPage([841.89, 595.28]); // A4 landscape
-  page.drawRectangle({
-    x: 0,
-    y: 0,
-    width: 841.89,
-    height: 595.28,
-    color: rgb(1, 1, 1),
-  });
+        // Passenger data
+        const name = passenger.name || '—';
+        const age = passenger.age || '—';
+        const gender = this.genderLabel(passenger.gender);
 
-  const ctx: Ctx = { doc, page, reg, bold, y: 575 };
-  const ML = 40;
+        doc
+          .fontSize(10)
+          .fill(BLACK)
+          .text(this.reverseArabic(name), MARGIN, rowY, {
+            width: colWidths[0],
+            align: 'left'
+          });
 
-  draw(
-    ctx,
-    841.89 - ML,
-    `قائمة الركاب — ${trip?.fromCity || ''} → ${trip?.toCity || ''}`,
-    16,
-    {
-      bold: true,
-      color: C.primary,
-      right: true,
-      width: 760,
-    },
-  );
-  ctx.y -= 24;
+          doc
+            .text(this.toArabicIndic(age), MARGIN + colWidths[0], rowY, {
+              width: colWidths[1],
+              align: 'left'
+            });
 
-  const cols = [40, 80, 80, 80, 200, 220];
-  const headers = [
-    '#',
-    'المقعد',
-    'الجنس',
-    'العمر',
-    'جهة الاتصال',
-    'اسم الراكب',
-  ];
-  const cx = (i: number) => ML + cols.slice(0, i).reduce((a, b) => a + b, 0);
-  const rowH = 24;
+          doc
+            .text(gender, MARGIN + colWidths[0] + colWidths[1], rowY, {
+              width: colWidths[2],
+              align: 'left'
+            });
 
-  ctx.page.drawRectangle({
-    x: ML,
-    y: ctx.y - rowH,
-    width: 720,
-    height: rowH,
-    color: C.primary,
-  });
-  ctx.y -= 6;
-  headers.forEach((h, i) => {
-    draw(ctx, cx(i) + cols[i] - 6, h, 10, {
-      bold: true,
-      color: C.onPrimary,
-      right: true,
-      width: cols[i] - 12,
-    });
-  });
-  ctx.y -= rowH - 6;
+          doc
+            .text(this.toArabicIndic(seatNumber), MARGIN + colWidths[0] + colWidths[1] + colWidths[2], rowY, {
+              width: colWidths[3],
+              align: 'left'
+            });
 
-  passengerRows.forEach((p: any, i: number) => {
-    const fill = i % 2 === 0 ? hex('ffffff') : hex('f4fbf9');
-    ctx.page.drawRectangle({
-      x: ML,
-      y: ctx.y - rowH,
-      width: 720,
-      height: rowH,
-      color: fill,
-    });
-    const cells = [
-      toAr(i + 1),
-      toAr(p.seatNumber),
-      genderLabel(p.gender),
-      toAr(p.age),
-      p.contact,
-      p.name,
-    ];
-    ctx.y -= 6;
-    cells.forEach((val, ci) => {
-      draw(ctx, cx(ci) + cols[ci] - 6, String(val ?? '—'), 10, {
-        color: C.textPrimary,
-        right: true,
-        width: cols[ci] - 12,
+        y += 18; // Move to next row
       });
+
+      y += 10; // Space after table
+
+      // Add horizontal separator
+      doc
+        .lineWidth(1)
+        .strokeColor(TAFIYA_TEAL)
+        .moveTo(MARGIN, y)
+        .lineTo(PAGE_WIDTH - MARGIN, y)
+        .stroke();
+
+      y += 20; // Space after separator
+
+      // SECTION 5 — PAYMENT DETAILS
+      // Two-column layout
+      const pay = ticketData.payment || {};
+      const seatCount = passengers.length || 1;
+      const price = Number(pay.price ?? 0);
+      const platformFee = Number(pay.platformFeeAmount ?? 0);
+      const totalAmount = Number(pay.totalAmount ?? 0);
+      const currency = pay.currency ?? 'جنيه سوداني';
+      const paymentMethod = pay.paymentMethod ?? '—';
+
+      // Right column: labels
+      doc
+        .fontSize(10)
+        .fill(BLACK)
+        .text('طريقة الدفع', MARGIN, y, {
+          width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
+          align: 'left'
+        });
+
+        doc
+          .fontSize(10)
+          .fill(BLACK)
+          .text('سعر التذكرة الواحدة', MARGIN, y + 20, {
+            width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
+            align: 'left'
+          });
+
+          doc
+            .fontSize(10)
+            .fill(BLACK)
+            .text('إجمالي المبلغ المدفوع', MARGIN, y + 40, {
+              width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
+              align: 'left'
+            });
+
+      // Left column: values
+      doc
+        .fontSize(10)
+        .fill(BLACK)
+        .font(fontBold)
+        .text(this.reverseArabic(paymentMethod), MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2, y, {
+          width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
+          align: 'left'
+        });
+
+        doc
+          .fontSize(10)
+          .fill(BLACK)
+          .font(fontBold)
+          .text(`${this.formatMoney(price, currency)}`, MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2, y + 20, {
+            width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
+            align: 'left'
+          });
+
+          doc
+            .fontSize(10)
+            .fill(BLACK)
+            .font(fontBold)
+            .text(`${this.formatMoney(totalAmount, currency)}`, MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2, y + 40, {
+              width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
+              align: 'left'
+            });
+
+      y += 60; // Move past payment section
+
+      // Finalize the PDF
+      doc.end();
     });
-    ctx.y -= rowH - 6;
-  });
+  }
 
-  return doc.save();
+  private async generatePassengerListBuffer(trip: any, passengerRows: any[]): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const doc = new PDFKit({
+        size: 'A4',
+        margin: 40, // Slightly larger margin for passenger list
+        layout: 'landscape', // Landscape for better table layout
+        autoFirstPage: false,
+      });
+
+      const chunks: Buffer[] = [];
+      doc.on('data', (chunk) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', (err) => reject(err));
+
+      // Start the PDF
+      doc.addPage();
+
+      // Constants
+      const PAGE_WIDTH = doc.page.width;
+      const PAGE_HEIGHT = doc.page.height;
+      const MARGIN = 40;
+      const CONTENT_WIDTH = PAGE_WIDTH - 2 * MARGIN;
+      const CONTENT_HEIGHT = PAGE_HEIGHT - 2 * MARGIN;
+
+      // Colors
+      const BLACK = '#000000';
+      const WHITE = '#FFFFFF';
+      const TAFIYA_TEAL = '#042F2E';
+
+      // Font setup
+      const { regular: fontRegular, bold: fontBold } = this.getFontNames();
+
+      let y = MARGIN;
+
+      // Title
+      const tripFrom = trip?.fromCity || '—';
+      const tripTo = trip?.toCity || '—';
+      doc
+        .fontSize(16)
+        .fill(TAFIYA_TEAL)
+        .font(fontBold)
+        .text(`قائمة الركاب — ${tripFrom} → ${tripTo}`, MARGIN, y, {
+          width: PAGE_WIDTH - 2 * MARGIN,
+          align: 'left'
+        });
+
+      y += 30;
+
+      // Table headers
+      const tableStartY = y;
+      const headers = ['#', 'المقعد', 'الجنس', 'العمر', 'جهة الاتصال', 'اسم الراكب'];
+      const colWidths = [30, 50, 50, 50, 150, (PAGE_WIDTH - 2 * MARGIN) - 330]; // Last column takes remaining space
+      let colX = MARGIN;
+
+      doc
+        .fontSize(10)
+        .fill(WHITE)
+        .font(fontBold);
+
+      // Draw header background
+      doc
+        .rect(MARGIN, tableStartY - 5, PAGE_WIDTH - 2 * MARGIN, 25)
+        .fillColor(TAFIYA_TEAL)
+        .fill();
+
+      headers.forEach((header, index) => {
+        // For RTL text in headers, reverse it
+        doc.text(this.reverseArabic(header), colX, tableStartY, {
+          width: colWidths[index],
+          align: 'center'
+        });
+        colX += colWidths[index];
+      });
+
+      y += 25; // Move past headers
+
+      // Table rows
+      passengerRows.forEach((row, index) => {
+        // Check if we need a new page
+        if (y > PAGE_HEIGHT - MARGIN - 20) {
+          doc.addPage();
+          y = MARGIN;
+
+          // Redraw headers on new page
+          doc
+            .rect(MARGIN, y - 5, PAGE_WIDTH - 2 * MARGIN, 25)
+            .fillColor(TAFIYA_TEAL)
+            .fill();
+
+          colX = MARGIN;
+          headers.forEach((header, index) => {
+            doc.text(this.reverseArabic(header), colX, y, {
+              width: colWidths[index],
+              align: 'center'
+            });
+            colX += colWidths[index];
+          });
+
+          y += 25;
+        }
+
+        const rowY = y;
+
+        // Alternate row colors
+        if (index % 2 === 1) {
+          doc
+            .rect(MARGIN, rowY - 2, PAGE_WIDTH - 2 * MARGIN, 20)
+            .fillColor('#f8f9fa')
+            .fill();
+        }
+
+        // Row data
+        const cells = [
+          index + 1,
+          row.seatNumber || '—',
+          this.genderLabel(row.gender),
+          this.toArabicIndic(row.age),
+          row.contact || '—',
+          row.name || '—',
+        ];
+
+        colX = MARGIN;
+        doc
+          .fontSize(9)
+          .fill(BLACK);
+
+        cells.forEach((cell, cellIndex) => {
+          // For Arabic text in cells, we might need to reverse it
+          // But for mixed content (numbers, English), we'll be careful
+          let displayCell = String(cell);
+          // Only reverse if it's primarily Arabic text (simplified check)
+          if (/[؀-ۿ]/.test(displayCell)) {
+            displayCell = this.reverseArabic(displayCell);
+          }
+          doc.text(displayCell, colX, rowY, {
+            width: colWidths[cellIndex],
+            align: 'left'
+          });
+          colX += colWidths[cellIndex];
+        });
+
+        y += 20; // Move to next row
+      });
+
+      // Finalize the PDF
+      doc.end();
+    });
+  }
 }
-
-export { generateTicketBuffer, generatePassengerListBuffer };
