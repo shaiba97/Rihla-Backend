@@ -40,19 +40,63 @@ const bidi = bidiFactory();
 // ─────────────────────────────────────────────────────────────
 // DESIGN TOKENS  (mapped from the approved HTML ticket design)
 // ─────────────────────────────────────────────────────────────
+// Design tokens mapped from the approved HTML ticket design
 const C = {
-  primary: hex('00685f'),
-  primaryContainer: hex('008378'),
-  tertiary: hex('008374'),
-  onSurfaceVariant: hex('3d4947'),
-  surfaceContainerLow: hex('e9f6f3'),
-  outlineVariant: hex('bcc9c6'),
-  onPrimary: hex('ffffff'),
-  textPrimary: hex('134E4A'),
-  gray: hex('6B7280'),
-  secondary: hex('316763'),
-  onSecondaryContainer: hex('376d69'),
-  secondaryContainer: hex('b5ede7'),
+  primary: hex('00685f'), // primary
+  onPrimary: hex('ffffff'), // on-primary
+  primaryContainer: hex('008378'), // primary-container
+  onPrimaryContainer: hex('00201d'), // on-primary-container
+  primaryFixed: hex('89f5e7'), // primary-fixed
+  onPrimaryFixed: hex('00201d'), // on-primary-fixed
+  primaryFixedDim: hex('6bd8cb'), // primary-fixed-dim
+  onPrimaryFixedVariant: hex('005049'), // on-primary-fixed-variant
+  secondary: hex('316763'), // secondary
+  onSecondary: hex('ffffff'), // on-secondary
+  secondaryContainer: hex('b5ede7'), // secondary-container
+  onSecondaryContainer: hex('376d69'), // on-secondary-container
+  secondaryFixed: hex('b5ede7'), // secondary-fixed
+  onSecondaryFixed: hex('00201e'), // on-secondary-fixed
+  secondaryFixedDim: hex('9ad1cb'), // secondary-fixed-dim
+  onSecondaryFixedVariant: hex('144f4b'), // on-secondary-fixed-variant
+  tertiary: hex('00685c'), // tertiary
+  onTertiary: hex('ffffff'), // on-tertiary
+  tertiaryContainer: hex('008374'), // tertiary-container
+  onTertiaryContainer: hex('f4fffb'), // on-tertiary-container
+  tertiaryFixed: hex('6ef9e2'), // tertiary-fixed
+  onTertiaryFixed: hex('00201b'), // on-tertiary-fixed
+  tertiaryFixedDim: hex('4ddcc6'), // tertiary-fixed-dim
+  onTertiaryFixedVariant: hex('005047'), // on-tertiary-fixed-variant
+  surface: hex('effcf9'), // surface
+  onSurface: hex('121e1c'), // on-surface
+  surfaceDim: hex('d0ddda'), // surface-dim
+  surfaceBright: hex('effcf9'), // surface-bright
+  surfaceContainerLowest: hex('ffffff'), // surface-container-lowest
+  surfaceContainerLow: hex('e9f6f3'), // surface-container-low
+  surfaceContainer: hex('e4f1ee'), // surface-container
+  surfaceContainerHigh: hex('deebe8'), // surface-container-high
+  surfaceContainerHighest: hex('d8e5e2'), // surface-container-highest
+  surfaceVariant: hex('d8e5e2'), // surface-variant
+  onSurfaceVariant: hex('3d4947'), // on-surface-variant
+  outline: hex('6d7a77'), // outline
+  outlineVariant: hex('bcc9c6'), // outline-variant
+  error: hex('ba1a1a'), // error
+  onError: hex('ffffff'), // on-error
+  errorContainer: hex('ffdad6'), // error-container
+  onErrorContainer: hex('93000a'), // on-error-container
+  inverseSurface: hex('273331'), // inverse-surface
+  onInverseSurface: hex('e6f3f1'), // inverse-on-surface
+  inversePrimary: hex('6bd8cb'), // inverse-primary
+  textPrimary: hex('134E4A'), // textPrimary (custom)
+  gray: hex('6B7280'), // gray (custom)
+
+  // Spacing tokens (from design system) - converted to points for PDF (1px = 0.75pt)
+  baseUnit: 6, // 8px = 6pt
+  stackSm: 9, // 12px = 9pt
+  gutter: 12, // 16px = 12pt
+  stackMd: 18, // 24px = 18pt
+  marginMobile: 12, // 16px = 12pt
+  marginDesktop: 24, // 32px = 24pt
+  stackLg: 30, // 40px = 30pt
 };
 
 interface TicketData {
@@ -326,7 +370,7 @@ interface Ctx {
 
 const PAGE_W = 595.28; // A4 portrait width (pt)
 const PAGE_H = 841.89; // A4 portrait height (pt)
-const MARGIN = 30;
+const MARGIN = C.marginDesktop; // marginDesktop: 32px = 24pt
 
 /** Draw RTL text at RIGHT edge = x, baseline = ctx.y. Returns ctx.y unchanged. */
 function draw(

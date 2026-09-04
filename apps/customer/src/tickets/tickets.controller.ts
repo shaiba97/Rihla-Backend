@@ -12,6 +12,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '@app/prisma';
 import { PDFService } from '@app/pdf';
 import { UsersService } from '../users/service/users.service';
+import { generateTicketBuffer } from '@app/pdf';
 import type { Request, Response } from 'express';
 
 /** Escapes HTML-special characters in user-supplied values before they are
@@ -525,5 +526,72 @@ export class TicketsController {
     // here (controller runs after that middleware) so the ticket can render.
     res.removeHeader('X-Frame-Options');
     res.send(html);
+  }
+
+  @Get('preview')
+  async getTicketPreview(@Req() req: Request, @Res() res: Response) {
+    // Generate sample ticket data for preview (using hardcoded values for simplicity)
+    const tomorrow = new Date(Date.now() + 86400000); // Tomorrow
+    const arrivalTime = new Date(tomorrow.getTime() + 6 * 3600000); // 6 hours later
+
+    const sampleData = {
+      bookingId: `PREVIEW-${Date.now()}`,
+      customerName: " أحمد محمد علي",
+      bus: {
+        name: " عنداء للسفر الفاخر",
+        plate: {
+          numbers: "١٢٣٤",
+          arabic: " أ ب",
+          english: "AB"
+        }
+      },
+      trip: {
+        fromCity: "الخرطوم",
+        fromState: "الخرطوم",
+        fromStation: "المحطة المركزية",
+        toCity: "بورتسودان",
+        toState: "البحر الأحمر",
+        toStation: "محطة بورتسودان",
+        departureDate: tomorrow,
+        arrivalDate: arrivalTime,
+        departureTime: "08:00",
+        arrivalTime: "14:00",
+        price: 250
+      },
+      passengers: [
+        { name: " أحمد محمد علي", age: 32, gender: "MALE" },
+        { name: " فاطمة إبراهيم", age: 28, gender: "FEMALE" },
+        { name: " خالد Hassan", age: 25, gender: "MALE" }
+      ],
+      seatNumbers: [12, 14, 16],
+      payment: {
+        platformFeeAmount: 25,
+        companyAmount: 475,
+        totalAmount: 500,
+        price: 250,
+        currency: "جنيه سوداني"
+      },
+      qrData: `BOOKING:PREVIEW-${Date.now()}`
+    };
+
+    try {
+      const buffer = await generateTicketBuffer(sampleData);
+
+      if (!buffer) {
+        throw new Error('Failed to generate preview PDF');
+      }
+
+      // Set headers for PDF download
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="ticket_preview_${sampleData.bookingId}.pdf"`
+      );
+      res.setHeader('Cache-Control', 'no-store');
+      res.send(buffer);
+    } catch (error) {
+      console.error('Failed to generate ticket preview:', error);
+      res.status(500).send({ error: 'Could not generate ticket preview' });
+    }
   }
 }
