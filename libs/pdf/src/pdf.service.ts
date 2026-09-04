@@ -4,9 +4,36 @@ import * as fs from 'fs';
 import { PrismaService } from '@app/prisma';
 import PDFKit from 'pdfkit';
 
+// The following JS-only packages ship no type definitions; load them via
+// require so the build does not need ambient module declarations.
+/* eslint-disable @typescript-eslint/no-require-imports */
+const arabicReshaper: {
+  convertArabic(text: string): string;
+} = require('arabic-reshaper');
+
+const bidiFactory: () => {
+  getEmbeddingLevels(
+    text: string,
+    direction?: 'ltr' | 'rtl',
+  ): {
+    levels: Uint8Array;
+    paragraphs: { start: number; end: number; level: number }[];
+  };
+  getReorderSegments(
+    text: string,
+    embeddingLevels: any,
+    lineStart?: number,
+    lineEnd?: number,
+  ): [number, number][];
+} = require('bidi-js');
+/* eslint-enable @typescript-eslint/no-require-imports */
+
+const bidi = bidiFactory();
+
 // Interface for ticket data (same as before)
 interface TicketData {
   bookingId: string;
+  createdAt?: any;
   customerName?: string;
   bus?: any;
   trip?: any;
@@ -29,38 +56,75 @@ export class PDFService {
   }
 
   private loadResources() {
-    try {
-      // Load Tajawal fonts for Arabic support
-      const fontPathRegular = path.join(__dirname, '..', '..', '..', 'fonts', 'Tajawal-Regular.ttf');
-      const fontPathBold = path.join(__dirname, '..', '..', '..', 'fonts', 'Tajawal-Bold.ttf');
+    // The compiled output can live in several layouts (webpack bundle dir,
+    // tsconfig lib outDir, or the repo root during ts-node), so resolve the
+    // fonts/assets against a set of candidate locations.
+    const baseCandidates = [
+      __dirname,
+      path.join(__dirname, '..'),
+      path.join(__dirname, '..', '..'),
+      path.join(__dirname, '..', '..', '..'),
+      process.cwd(),
+    ];
 
-      if (fs.existsSync(fontPathRegular) && fs.existsSync(fontPathBold)) {
-        this.tajawalRegular = fs.readFileSync(fontPathRegular);
-        this.tajawalBold = fs.readFileSync(fontPathBold);
-        this.logger.log('Loaded Tajawal fonts for Arabic support');
+    try {
+      // Load Tajawal fonts for Arabic support.
+      for (const base of baseCandidates) {
+        const fontDir = path.join(base, 'fonts');
+        const regular = path.join(fontDir, 'Tajawal-Regular.ttf');
+        const bold = path.join(fontDir, 'Tajawal-Bold.ttf');
+        if (fs.existsSync(regular) && fs.existsSync(bold)) {
+          this.tajawalRegular = fs.readFileSync(regular);
+          this.tajawalBold = fs.readFileSync(bold);
+          this.logger.log(`Loaded Tajawal fonts for Arabic support from ${fontDir}`);
+          break;
+        }
+      }
+
+      if (!this.tajawalRegular) {
+        this.logger.warn('Could not locate Tajawal fonts, falling back to built-in fonts');
       }
     } catch (error) {
       this.logger.warn('Could not load custom fonts, using defaults');
     }
 
     try {
-      // Load logo
-      const logoPath = path.join(__dirname, '..', '..', '..', 'assets', 'companyLogo.png');
-      if (fs.existsSync(logoPath)) {
-        this.logoBuffer = fs.readFileSync(logoPath);
-        this.logger.log('Loaded company logo');
+      // Load logo (customer-facing brand, asset file: customerLogo.png)
+      for (const base of baseCandidates) {
+        const assetsDir = path.join(base, 'assets');
+        const logoPath = path.join(assetsDir, 'customerLogo.png');
+        if (fs.existsSync(logoPath)) {
+          this.logoBuffer = fs.readFileSync(logoPath);
+          this.logger.log(`Loaded customer logo from ${logoPath}`);
+          break;
+        }
+      }
+
+      if (!this.logoBuffer) {
+        this.logger.warn('Could not locate customer logo, continuing without it');
       }
     } catch (error) {
-      this.logger.warn('Could not load company logo, continuing without it');
+      this.logger.warn('Could not load customer logo, continuing without it');
     }
   }
 
-  // Helper function to reverse Arabic text for proper display in PDFKit
-  private reverseArabic(text: string): string {
-    if (!text) return '';
-    // Simple character reversal for Arabic text
-    // Note: For production, consider using a proper Arabic shaping library
-    return text.split('').reverse().join('');
+  // Converts Arabic text into visual-order, presentation-form string that
+  // PDFKit can render correctly without OpenType shaping.
+  // Pipeline: arabicReshaper.convertArabic (produce presentation forms), then
+  // bidi-js reorders into visual (left-to-right) display order.
+  private asVisual(text: any): string {
+    if (text == null || text === '') return '';
+    const src = String(text);
+    const shaped = arabicReshaper.convertArabic(src);
+    const embedding = bidi.getEmbeddingLevels(shaped, 'rtl');
+    const chars = shaped.split('');
+    bidi
+      .getReorderSegments(shaped, embedding)
+      .forEach(([s, e]: [number, number]) => {
+        const seg = chars.slice(s, e + 1).reverse();
+        for (let i = s; i <= e; i++) chars[i] = seg[i - s];
+      });
+    return chars.join('');
   }
 
   // Helper functions for formatting
@@ -160,6 +224,7 @@ export class PDFService {
 
       const ticketData: TicketData = {
         bookingId,
+        createdAt: booking.createdAt,
         customerName: booking.Customer?.name ?? '',
         bus,
         trip,
@@ -171,6 +236,7 @@ export class PDFService {
           totalAmount: payment.totalAmount ?? 0,
           price: payment.price ?? 0,
           currency: payment.currency ?? 'جنيه سوداني',
+          paymentMethod: payment.paymentMethod ?? '',
         },
         qrData: `BOOKING:${bookingId}`,
       };
@@ -285,17 +351,18 @@ export class PDFService {
       let logoY = headerTop;
 
       // If logo exists, embed it
+      const createdAtText = `تاريخ إنشاء التذكرة: ${this.formatDateShort(ticketData.createdAt)}`;
+
       if (this.logoBuffer) {
         try {
           doc.image(this.logoBuffer, logoX, logoY, { width: logoSize, height: logoSize });
           // Adjust the text position to be left of the logo with a gap
           const textWidth = (PAGE_WIDTH - 2 * MARGIN) / 2 - 10 - logoSize - 10; // reduce width for logo and gap
           // Left side: creation date
-          const createdAtText = `تاريخ إنشاء التذكرة: ${new Date().toLocaleDateString('ar-SA')}`;
           doc
             .fontSize(10)
             .fill(BLACK)
-            .text(createdAtText, MARGIN, y, {
+            .text(this.asVisual(createdAtText), MARGIN, y, {
               width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
               align: 'left'
             });
@@ -305,18 +372,17 @@ export class PDFService {
             .fontSize(24)
             .fill(TAFIYA_TEAL)
             .font(fontBold)
-            .text('تفية', logoX - 10, y, { // 10 pixels gap between text and logo
+            .text(this.asVisual('تفية'), logoX - 10, y, { // 10 pixels gap between text and logo
               width: textWidth,
               align: 'right'
             });
         } catch (error) {
           this.logger.warn('Could not embed logo: ' + error.message);
           // Fallback to original text positioning without logo
-          const createdAtText = `تاريخ إنشاء التذكرة: ${new Date().toLocaleDateString('ar-SA')}`;
           doc
             .fontSize(10)
             .fill(BLACK)
-            .text(createdAtText, MARGIN, y, {
+            .text(this.asVisual(createdAtText), MARGIN, y, {
               width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
               align: 'left'
             });
@@ -326,31 +392,30 @@ export class PDFService {
             .fontSize(24)
             .fill(TAFIYA_TEAL)
             .font(fontBold)
-            .text('تفية', MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2 + 10, y, {
+            .text(this.asVisual('تفية'), MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2 + 10, y, {
               width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
               align: 'right'
             });
         }
       } else {
         // No logo, original layout
-        const createdAtText = `تاريخ إنشاء التذكرة: ${new Date().toLocaleDateString('ar-SA')}`;
         doc
           .fontSize(10)
           .fill(BLACK)
-          .text(createdAtText, MARGIN, y, {
+          .text(this.asVisual(createdAtText), MARGIN, y, {
             width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
             align: 'left'
           });
 
-          // Right side: brand name
-          doc
-            .fontSize(24)
-            .fill(TAFIYA_TEAL)
-            .font(fontBold)
-            .text('تفية', MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2 + 10, y, {
-              width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
-              align: 'right'
-            });
+        // Right side: brand name
+        doc
+          .fontSize(24)
+          .fill(TAFIYA_TEAL)
+          .font(fontBold)
+          .text(this.asVisual('تفية'), MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2 + 10, y, {
+            width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
+            align: 'right'
+          });
       }
 
       y += 50; // Move down for next section (logo size 40 + gap 10)
@@ -389,7 +454,7 @@ export class PDFService {
       doc
         .fontSize(10)
         .fill(BLACK)
-        .text('اسم الحافلة', MARGIN, y, {
+        .text(this.asVisual('اسم الحافلة'), MARGIN, y, {
           width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
           align: 'left'
         });
@@ -398,7 +463,7 @@ export class PDFService {
       doc
         .fontSize(10)
         .fill(BLACK)
-        .text('رقم اللوحة', MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2, y, {
+        .text(this.asVisual('رقم اللوحة'), MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2, y, {
           width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
           align: 'left'
         });
@@ -410,7 +475,7 @@ export class PDFService {
         .fontSize(12)
         .fill(BLACK)
         .font(fontBold)
-        .text(busName, MARGIN, y, {
+        .text(this.asVisual(busName), MARGIN, y, {
           width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
           align: 'left'
         });
@@ -419,7 +484,7 @@ export class PDFService {
         .fontSize(12)
         .fill(BLACK)
         .font(fontBold)
-        .text(plateDisplay, MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2, y, {
+        .text(this.asVisual(plateDisplay), MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2, y, {
           width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
           align: 'left'
         });
@@ -450,7 +515,7 @@ export class PDFService {
         doc
           .fontSize(9)
           .fill(BLACK)
-          .text('مدينة المغادرة', rightX, y, {
+          .text(this.asVisual('مدينة المغادرة'), rightX, y, {
             width: colWidth - 10,
             align: 'left'
           });
@@ -458,7 +523,7 @@ export class PDFService {
           doc
             .fontSize(9)
             .fill(BLACK)
-            .text('المحطة', rightX, y + 20, {
+            .text(this.asVisual('المحطة'), rightX, y + 20, {
               width: colWidth - 10,
               align: 'left'
             });
@@ -466,7 +531,7 @@ export class PDFService {
             doc
               .fontSize(9)
               .fill(BLACK)
-              .text('الولاية', rightX, y + 40, {
+              .text(this.asVisual('الولاية'), rightX, y + 40, {
                 width: colWidth - 10,
                 align: 'left'
               });
@@ -474,7 +539,7 @@ export class PDFService {
               doc
                 .fontSize(9)
                 .fill(BLACK)
-                .text('وقت المغادرة', rightX, y + 60, {
+                .text(this.asVisual('وقت المغادرة'), rightX, y + 60, {
                   width: colWidth - 10,
                   align: 'left'
                 });
@@ -482,7 +547,7 @@ export class PDFService {
                 doc
                   .fontSize(9)
                   .fill(BLACK)
-                  .text('تاريخ المغادرة', rightX, y + 80, {
+                  .text(this.asVisual('تاريخ المغادرة'), rightX, y + 80, {
                     width: colWidth - 10,
                     align: 'left'
                   });
@@ -492,7 +557,7 @@ export class PDFService {
           .fontSize(11)
           .fill(BLACK)
           .font(fontBold)
-          .text(this.reverseArabic(trip?.fromCity || '—'), rightX, y, {
+          .text(this.asVisual(trip?.fromCity || '—'), rightX, y, {
             width: colWidth - 10,
             align: 'left'
           });
@@ -501,7 +566,7 @@ export class PDFService {
             .fontSize(11)
             .fill(BLACK)
             .font(fontBold)
-            .text(this.reverseArabic(trip?.fromStation || '—'), rightX, y + 20, {
+            .text(this.asVisual(trip?.fromStation || '—'), rightX, y + 20, {
               width: colWidth - 10,
               align: 'left'
             });
@@ -510,7 +575,7 @@ export class PDFService {
               .fontSize(11)
               .fill(BLACK)
               .font(fontBold)
-              .text(this.reverseArabic(trip?.fromState || '—'), rightX, y + 40, {
+              .text(this.asVisual(trip?.fromState || '—'), rightX, y + 40, {
                 width: colWidth - 10,
                 align: 'left'
               });
@@ -519,7 +584,7 @@ export class PDFService {
                 .fontSize(11)
                 .fill(BLACK)
                 .font(fontBold)
-                .text(this.formatTime(trip?.departureTime), rightX, y + 60, {
+                .text(this.asVisual(this.formatTime(trip?.departureTime)), rightX, y + 60, {
                   width: colWidth - 10,
                   align: 'left'
                 });
@@ -528,7 +593,7 @@ export class PDFService {
                   .fontSize(11)
                   .fill(BLACK)
                   .font(fontBold)
-                  .text(this.formatDateShort(trip?.departureDate), rightX, y + 80, {
+                  .text(this.asVisual(this.formatDateShort(trip?.departureDate)), rightX, y + 80, {
                     width: colWidth - 10,
                     align: 'left'
                   });
@@ -537,7 +602,7 @@ export class PDFService {
         doc
           .fontSize(9)
           .fill(BLACK)
-          .text('مدينة الوصول', leftX, y, {
+          .text(this.asVisual('مدينة الوصول'), leftX, y, {
             width: colWidth - 10,
             align: 'left'
           });
@@ -545,7 +610,7 @@ export class PDFService {
           doc
             .fontSize(9)
             .fill(BLACK)
-            .text('المحطة', leftX, y + 20, {
+            .text(this.asVisual('المحطة'), leftX, y + 20, {
               width: colWidth - 10,
               align: 'left'
             });
@@ -553,7 +618,7 @@ export class PDFService {
             doc
               .fontSize(9)
               .fill(BLACK)
-              .text('الولاية', leftX, y + 40, {
+              .text(this.asVisual('الولاية'), leftX, y + 40, {
                 width: colWidth - 10,
                 align: 'left'
               });
@@ -561,7 +626,7 @@ export class PDFService {
               doc
                 .fontSize(9)
                 .fill(BLACK)
-                .text('وقت الوصول', leftX, y + 60, {
+                .text(this.asVisual('وقت الوصول'), leftX, y + 60, {
                   width: colWidth - 10,
                   align: 'left'
                 });
@@ -569,7 +634,7 @@ export class PDFService {
                 doc
                   .fontSize(9)
                   .fill(BLACK)
-                  .text('تاريخ الوصول', leftX, y + 80, {
+                  .text(this.asVisual('تاريخ الوصول'), leftX, y + 80, {
                     width: colWidth - 10,
                     align: 'left'
                   });
@@ -579,7 +644,7 @@ export class PDFService {
           .fontSize(11)
           .fill(BLACK)
           .font(fontBold)
-          .text(this.reverseArabic(trip?.toCity || '—'), leftX, y, {
+          .text(this.asVisual(trip?.toCity || '—'), leftX, y, {
             width: colWidth - 10,
             align: 'left'
           });
@@ -588,7 +653,7 @@ export class PDFService {
             .fontSize(11)
             .fill(BLACK)
             .font(fontBold)
-            .text(this.reverseArabic(trip?.toStation || '—'), leftX, y + 20, {
+            .text(this.asVisual(trip?.toStation || '—'), leftX, y + 20, {
               width: colWidth - 10,
               align: 'left'
             });
@@ -597,7 +662,7 @@ export class PDFService {
               .fontSize(11)
               .fill(BLACK)
               .font(fontBold)
-              .text(this.reverseArabic(trip?.toState || '—'), leftX, y + 40, {
+              .text(this.asVisual(trip?.toState || '—'), leftX, y + 40, {
                 width: colWidth - 10,
                 align: 'left'
               });
@@ -606,7 +671,7 @@ export class PDFService {
                 .fontSize(11)
                 .fill(BLACK)
                 .font(fontBold)
-                .text(this.formatTime(trip?.arrivalTime), leftX, y + 60, {
+                .text(this.asVisual(this.formatTime(trip?.arrivalTime)), leftX, y + 60, {
                   width: colWidth - 10,
                   align: 'left'
                 });
@@ -615,7 +680,7 @@ export class PDFService {
                   .fontSize(11)
                   .fill(BLACK)
                   .font(fontBold)
-                  .text(this.formatDateShort(trip?.arrivalDate), leftX, y + 80, {
+                  .text(this.asVisual(this.formatDateShort(trip?.arrivalDate)), leftX, y + 80, {
                     width: colWidth - 10,
                     align: 'left'
                   });
@@ -639,7 +704,7 @@ export class PDFService {
         .fontSize(12)
         .fill(BLACK)
         .font(fontBold)
-        .text('بيانات الركاب', MARGIN, y, {
+        .text(this.asVisual('بيانات الركاب'), MARGIN, y, {
           width: PAGE_WIDTH - 2 * MARGIN,
           align: 'left'
         });
@@ -655,49 +720,63 @@ export class PDFService {
         (PAGE_WIDTH - 2 * MARGIN) * 0.2,
         (PAGE_WIDTH - 2 * MARGIN) * 0.2
       ];
-      let colX = MARGIN;
 
-      doc
-        .fontSize(10)
-        .fill(BLACK)
-        .font(fontBold);
-
-      colNames.forEach((colName, index) => {
-        // For RTL text in headers, we need to reverse it
-        doc.text(this.reverseArabic(colName), colX, tableStartY, {
-          width: colWidths[index],
-          align: 'left'
+      const drawPassengerHeader = (headerY: number) => {
+        doc
+          .fontSize(10)
+          .fill(BLACK)
+          .font(fontBold);
+        let hX = MARGIN;
+        colNames.forEach((colName, index) => {
+          doc.text(this.asVisual(colName), hX, headerY, {
+            width: colWidths[index],
+            align: 'left'
+          });
+          hX += colWidths[index];
         });
-        colX += colWidths[index];
-      });
+      };
+
+      drawPassengerHeader(tableStartY);
 
       y += 15; // Space below headers
 
       // Table rows
       const passengers = ticketData.passengers || [];
       const seatNumbers = ticketData.seatNumbers || [];
+      const rowHeight = 18;
+      const maxY = PAGE_HEIGHT - MARGIN - 20;
 
       passengers.forEach((passenger, index) => {
+        // Start a new page when the row would overflow the table area
+        if (y + rowHeight > maxY) {
+          doc.addPage();
+          y = MARGIN;
+          drawPassengerHeader(y);
+          y += 15;
+        }
+
         const rowY = y;
         const seatNumber = seatNumbers[index] || '—';
 
-        // Alternate row colors for readability
+        // Draw a subtle row separator using only the allowed palette
         if (index % 2 === 1) {
           doc
-            .rect(MARGIN, rowY - 2, PAGE_WIDTH - 2 * MARGIN, 18)
-            .fillColor('#f8f9fa') // very light gray
-            .fill();
+            .lineWidth(0.5)
+            .strokeColor(BLACK)
+            .moveTo(MARGIN, rowY + rowHeight - 2)
+            .lineTo(PAGE_WIDTH - MARGIN, rowY + rowHeight - 2)
+            .stroke();
         }
 
         // Passenger data
         const name = passenger.name || '—';
         const age = passenger.age || '—';
-        const gender = this.genderLabel(passenger.gender);
+        const gender = this.asVisual(this.genderLabel(passenger.gender));
 
         doc
           .fontSize(10)
           .fill(BLACK)
-          .text(this.reverseArabic(name), MARGIN, rowY, {
+          .text(this.asVisual(name), MARGIN, rowY, {
             width: colWidths[0],
             align: 'left'
           });
@@ -720,7 +799,7 @@ export class PDFService {
               align: 'left'
             });
 
-        y += 18; // Move to next row
+        y += rowHeight; // Move to next row
       });
 
       y += 10; // Space after table
@@ -749,7 +828,7 @@ export class PDFService {
       doc
         .fontSize(10)
         .fill(BLACK)
-        .text('طريقة الدفع', MARGIN, y, {
+        .text(this.asVisual('طريقة الدفع'), MARGIN, y, {
           width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
           align: 'left'
         });
@@ -757,7 +836,7 @@ export class PDFService {
         doc
           .fontSize(10)
           .fill(BLACK)
-          .text('سعر التذكرة الواحدة', MARGIN, y + 20, {
+          .text(this.asVisual('سعر التذكرة الواحدة'), MARGIN, y + 20, {
             width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
             align: 'left'
           });
@@ -765,7 +844,7 @@ export class PDFService {
           doc
             .fontSize(10)
             .fill(BLACK)
-            .text('إجمالي المبلغ المدفوع', MARGIN, y + 40, {
+            .text(this.asVisual('إجمالي المبلغ المدفوع'), MARGIN, y + 40, {
               width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
               align: 'left'
             });
@@ -775,7 +854,7 @@ export class PDFService {
         .fontSize(10)
         .fill(BLACK)
         .font(fontBold)
-        .text(this.reverseArabic(paymentMethod), MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2, y, {
+        .text(this.asVisual(paymentMethod), MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2, y, {
           width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
           align: 'left'
         });
@@ -784,7 +863,7 @@ export class PDFService {
           .fontSize(10)
           .fill(BLACK)
           .font(fontBold)
-          .text(`${this.formatMoney(price, currency)}`, MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2, y + 20, {
+          .text(this.asVisual(this.formatMoney(price, currency)), MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2, y + 20, {
             width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
             align: 'left'
           });
@@ -793,7 +872,7 @@ export class PDFService {
             .fontSize(10)
             .fill(BLACK)
             .font(fontBold)
-            .text(`${this.formatMoney(totalAmount, currency)}`, MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2, y + 40, {
+            .text(this.asVisual(this.formatMoney(totalAmount, currency)), MARGIN + (PAGE_WIDTH - 2 * MARGIN) / 2, y + 40, {
               width: (PAGE_WIDTH - 2 * MARGIN) / 2 - 10,
               align: 'left'
             });
@@ -846,7 +925,7 @@ export class PDFService {
         .fontSize(16)
         .fill(TAFIYA_TEAL)
         .font(fontBold)
-        .text(`قائمة الركاب — ${tripFrom} → ${tripTo}`, MARGIN, y, {
+        .text(this.asVisual(`قائمة الركاب — ${tripFrom} → ${tripTo}`), MARGIN, y, {
           width: PAGE_WIDTH - 2 * MARGIN,
           align: 'left'
         });
@@ -872,7 +951,7 @@ export class PDFService {
 
       headers.forEach((header, index) => {
         // For RTL text in headers, reverse it
-        doc.text(this.reverseArabic(header), colX, tableStartY, {
+        doc.text(this.asVisual(header), colX, tableStartY, {
           width: colWidths[index],
           align: 'center'
         });
@@ -896,7 +975,7 @@ export class PDFService {
 
           colX = MARGIN;
           headers.forEach((header, index) => {
-            doc.text(this.reverseArabic(header), colX, y, {
+            doc.text(this.asVisual(header), colX, y, {
               width: colWidths[index],
               align: 'center'
             });
@@ -908,12 +987,14 @@ export class PDFService {
 
         const rowY = y;
 
-        // Alternate row colors
+        // Draw a subtle row separator using only the allowed palette
         if (index % 2 === 1) {
           doc
-            .rect(MARGIN, rowY - 2, PAGE_WIDTH - 2 * MARGIN, 20)
-            .fillColor('#f8f9fa')
-            .fill();
+            .lineWidth(0.5)
+            .strokeColor(BLACK)
+            .moveTo(MARGIN, rowY + 18)
+            .lineTo(PAGE_WIDTH - MARGIN, rowY + 18)
+            .stroke();
         }
 
         // Row data
@@ -937,7 +1018,7 @@ export class PDFService {
           let displayCell = String(cell);
           // Only reverse if it's primarily Arabic text (simplified check)
           if (/[؀-ۿ]/.test(displayCell)) {
-            displayCell = this.reverseArabic(displayCell);
+            displayCell = this.asVisual(displayCell);
           }
           doc.text(displayCell, colX, rowY, {
             width: colWidths[cellIndex],

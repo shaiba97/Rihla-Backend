@@ -535,6 +535,7 @@ export class TicketsController {
 
     const sampleData = {
       bookingId: `PREVIEW-${Date.now()}`,
+      createdAt: new Date(),
       customerName: " أحمد محمد علي",
       bus: {
         name: " عنداء للسفر الفاخر",
@@ -568,7 +569,8 @@ export class TicketsController {
         companyAmount: 475,
         totalAmount: 500,
         price: 250,
-        currency: "جنيه سوداني"
+        currency: "جنيه سوداني",
+        paymentMethod: "أونلاين"
       },
       qrData: `BOOKING:PREVIEW-${Date.now()}`
     };
