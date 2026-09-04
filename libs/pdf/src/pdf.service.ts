@@ -232,7 +232,7 @@ export class PDFService {
     return { publicUrl, filePath: outputPath };
   }
 
-  private async generateTicketBuffer(ticketData: TicketData): Promise<Buffer> {
+  async generateTicketBuffer(ticketData: TicketData): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const doc = new PDFKit({
         size: 'A4',
@@ -242,9 +242,9 @@ export class PDFService {
       });
 
       const chunks: Buffer[] = [];
-      doc.on('data', (chunk) => chunks.push(chunk));
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
-      doc.on('error', (err) => reject(err));
+      doc.on('error', (err: Error) => reject(err));
 
       // Start the PDF
       doc.addPage();
@@ -805,7 +805,7 @@ export class PDFService {
     });
   }
 
-  private async generatePassengerListBuffer(trip: any, passengerRows: any[]): Promise<Buffer> {
+  async generatePassengerListBuffer(trip: any, passengerRows: any[]): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const doc = new PDFKit({
         size: 'A4',
@@ -815,9 +815,9 @@ export class PDFService {
       });
 
       const chunks: Buffer[] = [];
-      doc.on('data', (chunk) => chunks.push(chunk));
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
-      doc.on('error', (err) => reject(err));
+      doc.on('error', (err: Error) => reject(err));
 
       // Start the PDF
       doc.addPage();

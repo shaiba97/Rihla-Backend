@@ -12,7 +12,6 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '@app/prisma';
 import { PDFService } from '@app/pdf';
 import { UsersService } from '../users/service/users.service';
-import { generateTicketBuffer } from '@app/pdf';
 import type { Request, Response } from 'express';
 
 /** Escapes HTML-special characters in user-supplied values before they are
@@ -575,7 +574,7 @@ export class TicketsController {
     };
 
     try {
-      const buffer = await generateTicketBuffer(sampleData);
+      const buffer = await this.pdfService.generateTicketBuffer(sampleData);
 
       if (!buffer) {
         throw new Error('Failed to generate preview PDF');
