@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { PrismaService } from '@app/prisma';
 import { renderTicketToPdf, renderPassengerListToPdf } from './canvas-pdf.util';
+import { renderPassengerListCanvasPdf } from './passenger-canvas.util';
 import { normalizeCurrency } from './format.util';
 import type { TicketData } from './ticket-pdf-data.interface';
 
@@ -21,6 +22,7 @@ export class PDFService {
   private readonly logger = new Logger(PDFService.name);
   private outputDir = './upload';
   private logoBuffer: Buffer | null = null;
+  private companyLogoBuffer: Buffer | null = null;
 
   constructor(private readonly prisma: PrismaService) {
     this.loadResources();
@@ -48,9 +50,23 @@ export class PDFService {
         }
       }
 
+      for (const base of baseCandidates) {
+        const companyLogoPath = path.join(base, 'assets', 'companyLogo.png');
+        if (fs.existsSync(companyLogoPath)) {
+          this.companyLogoBuffer = fs.readFileSync(companyLogoPath);
+          this.logger.log(`Loaded company logo from ${companyLogoPath}`);
+          break;
+        }
+      }
+
       if (!this.logoBuffer) {
         this.logger.warn(
           'Could not locate customer logo, continuing without it',
+        );
+      }
+      if (!this.companyLogoBuffer) {
+        this.logger.warn(
+          'Could not locate company logo, continuing without it',
         );
       }
     } catch {
@@ -181,5 +197,49 @@ export class PDFService {
     passengerRows: any[],
   ): Promise<Buffer> {
     return renderPassengerListToPdf(trip, passengerRows);
+  }
+
+  /**
+   * Designed "image-style" passenger list exported as a PDF. Uses the same
+   * row-flattening as `generatePassengerList` (seat numbers paired to
+   * passengers by index) but renders the branded RTL layout — company logo,
+   * FROM/TO + bus-plate grid, passenger table — with the approved
+   * three-color palette. Rows are always taken from server-side data.
+   */
+  async generatePassengerListImage(
+    trip: any,
+    bookings: any[],
+  ): Promise<{ publicUrl: string; filePath: string; buffer: Buffer | null }> {
+    const outputDir = path.resolve(this.outputDir);
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+
+    const filename = `passengers_image_${trip.id}.pdf`;
+    const outputPath = path.join(outputDir, filename);
+    const publicUrl = `/upload/${filename}`;
+
+    const passengerRows = (bookings || []).flatMap((b: any) => {
+      const seats = (b.seatNumbers ?? []) as number[];
+      const passengers = (b.passenger ?? []) as any[];
+      return passengers.map((p: any, i: number) => ({
+        name: p.name || '',
+        age: p.age || 0,
+        gender: p.gender || '',
+        seatNumber: seats[i] || '',
+        contact: b.passengerContact || '',
+      }));
+    });
+
+    const buffer = await renderPassengerListCanvasPdf(trip, passengerRows, {
+      logoBuffer: this.companyLogoBuffer,
+      generatedAt: new Date(),
+    });
+    fs.writeFileSync(outputPath, Buffer.from(buffer));
+    this.logger.log(
+      `Passenger list image saved -> ${outputPath} (${(buffer.length / 1024).toFixed(1)} KB)`,
+    );
+
+    return { publicUrl, filePath: outputPath, buffer };
   }
 }

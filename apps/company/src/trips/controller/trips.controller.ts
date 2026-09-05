@@ -239,6 +239,26 @@ export class TripsController {
     return { url: result.publicUrl };
   }
 
+  @Get('passengers-image/:tripId')
+  async passengersImage(
+    @Req() req: Request,
+    @Param('tripId') tripId: string,
+    @Query('token') token: string,
+    @Res() res: Response,
+  ) {
+    const actor = this.resolveActor(req, token);
+    const buffer = await this.tripsService.getPassengerListImageBuffer(
+      tripId,
+      actor,
+    );
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="passengers-${tripId}.pdf"`,
+    );
+    res.end(buffer);
+  }
+
   @Post('generate-passengers-pdf')
   @UseGuards(AuthGuard('jwt'))
   @HttpCode(HttpStatus.OK)

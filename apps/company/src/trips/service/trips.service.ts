@@ -597,6 +597,25 @@ export class TripsService {
     return this.pdfService.generatePassengerList(trip, bookings);
   }
 
+  /**
+   * Returns the designed PDF passenger list (image-style layout, company logo
+   * header) for a trip's server-confirmed bookings. Buffer is streamed inline
+   * by the controller.
+   */
+  async getPassengerListImageBuffer(
+    tripId: string,
+    actor: Actor,
+  ): Promise<Buffer> {
+    const { trip, bookings } = await this.getPassengerListData(tripId);
+    this.assertOwnership(trip, actor);
+
+    const result = await this.pdfService.generatePassengerListImage(
+      trip,
+      bookings,
+    );
+    return result.buffer!;
+  }
+
   private blockedSeatsKey(tripId: string): string {
     return `blocked-seats:${tripId}`;
   }
