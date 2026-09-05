@@ -2,20 +2,18 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as path from 'path';
 import * as fs from 'fs';
 import { PrismaService } from '@app/prisma';
-import { setupPdfmake, renderPdf } from './pdfmake.util';
-import { buildTicketDocument } from './ticket-pdf.service';
-import { buildPassengerListDocument } from './passenger-list-pdf.service';
+import { renderTicketToPdf, renderPassengerListToPdf } from './canvas-pdf.util';
 import type { TicketData } from './ticket-pdf-data.interface';
 
 /**
  * Facade for all in-app PDF generation.
  *
- * Public API is unchanged from the previous PDFKit implementation —
+ * Public API is unchanged from the previous implementations —
  * `generateTicket`, `generatePassengerList`, `generateTicketBuffer` and
  * `generatePassengerListBuffer` keep their signatures and return shapes.
- * Rendering now goes through pdfmake 0.3.11, which shapes and reorders
- * Arabic automatically, so all ticket text is passed as plain logical
- * Unicode (no arabic-reshaper / bidi-js preprocessing).
+ * Rendering draws the ticket onto a skia-canvas A4 page and exports a vector
+ * PDF; skia-canvas shapes Arabic and resolves bidi internally, so ticket text
+ * is passed as plain logical Unicode (no arabic-reshaper / bidi-js).
  */
 @Injectable()
 export class PDFService {
@@ -25,10 +23,6 @@ export class PDFService {
 
   constructor(private readonly prisma: PrismaService) {
     this.loadResources();
-    const fonts = setupPdfmake();
-    if (!fonts) {
-      this.logger.warn('Could not locate Tajawal fonts for pdfmake');
-    }
   }
 
   private loadResources() {
@@ -61,12 +55,6 @@ export class PDFService {
     } catch {
       this.logger.warn('Could not load customer logo, continuing without it');
     }
-  }
-
-  private getLogoDataUri(): string | null {
-    return this.logoBuffer
-      ? `data:image/png;base64,${this.logoBuffer.toString('base64')}`
-      : null;
   }
 
   // Main ticket generation
@@ -184,17 +172,13 @@ export class PDFService {
   }
 
   async generateTicketBuffer(ticketData: TicketData): Promise<Buffer> {
-    const document = buildTicketDocument(ticketData, {
-      logoDataUri: this.getLogoDataUri(),
-    });
-    return renderPdf(document);
+    return renderTicketToPdf(ticketData, this.logoBuffer);
   }
 
   async generatePassengerListBuffer(
     trip: any,
     passengerRows: any[],
   ): Promise<Buffer> {
-    const document = buildPassengerListDocument(trip, passengerRows);
-    return renderPdf(document);
+    return renderPassengerListToPdf(trip, passengerRows);
   }
 }

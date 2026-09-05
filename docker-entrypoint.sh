@@ -3,8 +3,8 @@ set -e
 
 export NGINX_PORT="${PORT:-8080}"
 
-envsubst '${NGINX_PORT}' < /etc/nginx/http.d/default.conf > /tmp/default.conf
-cat /tmp/default.conf > /etc/nginx/http.d/default.conf
+envsubst '${NGINX_PORT}' < /etc/nginx/conf.d/default.conf > /tmp/default.conf
+cat /tmp/default.conf > /etc/nginx/conf.d/default.conf
 
 nginx
 
