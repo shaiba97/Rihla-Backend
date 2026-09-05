@@ -191,7 +191,7 @@ export class BookingService {
             platformFeeLabel: activeFee?.label || 'رسوم المنصة',
             platformFeeRate,
             totalAmount,
-            currency: 'جنيه',
+            currency: 'جنيه سوداني',
           },
         };
       });
@@ -336,6 +336,17 @@ export class BookingService {
         // are ignored; commission mirrors the platform fee so that
         // companyAmount == totalAmount - commissionAmount always holds.
 
+        // Payment-method label: when the client passes a gatewayKey the label
+        // is resolved from the admin-authored PaymentAccount, so the stored
+        // value always comes from clean DB data rather than raw client text.
+        let paymentMethod = dto.paymentMethod;
+        if (dto.gatewayKey) {
+          const gateway = await tx.paymentAccount.findFirst({
+            where: { gatewayKey: dto.gatewayKey, isActive: true },
+          });
+          if (gateway?.gatewayName) paymentMethod = gateway.gatewayName;
+        }
+
         const payment = await tx.payment.create({
           data: {
             bookingId: booking.id,
@@ -345,9 +356,11 @@ export class BookingService {
             companyAmount: serverCompanyAmount,
             commissionAmount: platformFeeAmount,
             platformFeeAmount,
-            currency: dto.currency || 'SDG',
+            // Currency is always the Arabic store label — amounts are derived
+            // server-side, so client-sent currency codes are not trusted.
+            currency: 'جنيه سوداني',
             status: PaymentStatus.PENDING,
-            paymentMethod: dto.paymentMethod,
+            paymentMethod,
             transactionId: dto.transactionId,
             receiptFile: receiptFile ?? null,
           },

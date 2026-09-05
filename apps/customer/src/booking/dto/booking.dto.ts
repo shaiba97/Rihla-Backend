@@ -134,6 +134,10 @@ export class CreatePaymentDto {
   paymentMethod?: string;
 
   @IsOptional()
+  @IsString()
+  gatewayKey?: string;
+
+  @IsOptional()
   @IsNumber()
   @Type(() => Number)
   @Min(0)
@@ -205,6 +209,10 @@ export class CreateBookingWithPaymentDto {
   @IsString()
   @IsNotEmpty()
   transactionId: string;
+
+  @IsOptional()
+  @IsString()
+  gatewayKey?: string;
 
   @IsOptional()
   @IsNumber()

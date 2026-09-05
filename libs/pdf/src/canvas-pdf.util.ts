@@ -19,6 +19,7 @@ import {
   formatMoney,
   formatTime,
   genderLabel,
+  normalizeCurrency,
   toArabicIndic,
 } from './format.util';
 import type { TicketBusPlate, TicketData } from './ticket-pdf-data.interface';
@@ -396,7 +397,7 @@ export async function renderTicketToPdf(
   const payment = data.payment ?? {};
   const price = Number(payment.price ?? 0);
   const totalAmount = Number(payment.totalAmount ?? 0);
-  const currency = payment.currency ?? 'جنيه سوداني';
+  const currency = normalizeCurrency(payment.currency);
 
   const payRows: Array<[string, string]> = [
     ['طريقة الدفع', payment.paymentMethod || '—'],

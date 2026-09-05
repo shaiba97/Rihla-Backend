@@ -6,6 +6,20 @@
 
 const ARABIC_INDIC = '٠١٢٣٤٥٦٧٨٩';
 
+const CURRENCY_LABEL = 'جنيه سوداني';
+
+/**
+ * Maps legacy ISO currency codes to the canonical Arabic store label.
+ * 'SDG' rows predating the label default render as the full label; unknown
+ * values pass through unchanged.
+ */
+export function normalizeCurrency(currency?: string | null): string {
+  if (!currency) return CURRENCY_LABEL;
+  const t = currency.trim();
+  if (t.toUpperCase() === 'SDG') return CURRENCY_LABEL;
+  return t;
+}
+
 export function toArabicIndic(num: any): string {
   if (num == null || num === '') return '—';
   return String(num).replace(/[0-9]/g, (d) => ARABIC_INDIC[+d]);
@@ -38,11 +52,11 @@ export function formatTime(val: any): string {
   )} ${period}`;
 }
 
-export function formatMoney(amount: any, currency = 'جنيه سوداني'): string {
+export function formatMoney(amount: any, currency = CURRENCY_LABEL): string {
   if (amount == null || amount === '') return '—';
   const n = Number(amount);
   const fixed = n.toFixed(2).replace('.', '٫');
-  return `${toArabicIndic(fixed)} ${currency}`;
+  return `${toArabicIndic(fixed)} ${normalizeCurrency(currency)}`;
 }
 
 export function genderLabel(g: any): string {

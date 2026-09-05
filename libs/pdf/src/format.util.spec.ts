@@ -5,6 +5,7 @@ import {
   formatTime,
   formatMoney,
   genderLabel,
+  normalizeCurrency,
 } from './format.util';
 
 describe('format.util', () => {
@@ -54,6 +55,26 @@ describe('format.util', () => {
 
     it('returns a placeholder for empty amounts', () => {
       expect(formatMoney(null)).toBe('—');
+    });
+  });
+
+  describe('normalizeCurrency', () => {
+    it('maps legacy ISO code SDG to the Arabic store label', () => {
+      expect(normalizeCurrency('SDG')).toBe('جنيه سوداني');
+      expect(normalizeCurrency(' sdg ')).toBe('جنيه سوداني');
+    });
+
+    it('keeps the canonical Arabic label unchanged', () => {
+      expect(normalizeCurrency('جنيه سوداني')).toBe('جنيه سوداني');
+    });
+
+    it('defaults when missing', () => {
+      expect(normalizeCurrency(undefined)).toBe('جنيه سوداني');
+      expect(normalizeCurrency(null)).toBe('جنيه سوداني');
+    });
+
+    it('passes unknown labels through', () => {
+      expect(normalizeCurrency('$')).toBe('$');
     });
   });
 

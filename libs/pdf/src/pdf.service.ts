@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { PrismaService } from '@app/prisma';
 import { renderTicketToPdf, renderPassengerListToPdf } from './canvas-pdf.util';
+import { normalizeCurrency } from './format.util';
 import type { TicketData } from './ticket-pdf-data.interface';
 
 /**
@@ -108,7 +109,7 @@ export class PDFService {
           companyAmount: Number(payment.companyAmount ?? 0),
           totalAmount: Number(payment.totalAmount ?? 0),
           price: Number(payment.price ?? 0),
-          currency: payment.currency ?? 'جنيه سوداني',
+          currency: normalizeCurrency(payment.currency),
           paymentMethod: payment.paymentMethod ?? '',
         },
         qrData: `BOOKING:${bookingId}`,

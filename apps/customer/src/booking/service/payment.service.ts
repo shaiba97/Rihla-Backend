@@ -107,8 +107,20 @@ export class PaymentService {
     const serverCompanyAmount = baseAmount - platformFeeAmount;
     const serverTotalAmount = baseAmount;
 
-    // All financial figures are derived server-side; client-sent amounts are
-    // ignored. Status always starts as PENDING — only an admin can confirm.
+    // Currency is always the Arabic store label — amounts are derived
+    // server-side, so client-sent currency codes are not trusted.
+    const currency = 'جنيه سوداني';
+
+    // Payment-method label: resolve from the admin-authored gateway when a
+    // gatewayKey is provided, else store the supplied UTF-8 label.
+    let paymentMethod = createPaymentDto.paymentMethod;
+    if (createPaymentDto.gatewayKey) {
+      const gateway = await this.prisma.paymentAccount.findFirst({
+        where: { gatewayKey: createPaymentDto.gatewayKey, isActive: true },
+      });
+      if (gateway?.gatewayName) paymentMethod = gateway.gatewayName;
+    }
+
     const payment = await this.prisma.payment.create({
       data: {
         bookingId: createPaymentDto.bookingId,
@@ -118,11 +130,11 @@ export class PaymentService {
         companyAmount: serverCompanyAmount,
         commissionAmount: platformFeeAmount,
         platformFeeAmount,
-        currency: createPaymentDto.currency || 'SDG',
+        currency,
         status: PaymentStatus.PENDING,
         transactionId: createPaymentDto.transactionId,
         receiptFile: createPaymentDto.receiptFile,
-        paymentMethod: createPaymentDto.paymentMethod,
+        paymentMethod,
       },
       include: { Booking: { include: { Trip: true } } },
     });
